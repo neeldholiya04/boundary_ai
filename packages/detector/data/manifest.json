@@ -1,0 +1,18 @@
+{
+  "seed": 20260926,
+  "sources": {
+    "injections": 180,
+    "carriers": 400
+  },
+  "train": {
+    "total": 1208,
+    "positive": 804,
+    "negative": 404
+  },
+  "val": {
+    "total": 144,
+    "positive": 100,
+    "negative": 44
+  },
+  "leakage_checked_against": 565
+}

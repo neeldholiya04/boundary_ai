@@ -1,0 +1,153 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  HF_HUB_DISABLE_TELEMETRY: "1"
+  TOKENIZERS_PARALLELISM: "false"
+  # The production policy uses a gated model (Llama Prompt Guard 2). Set HF_TOKEN as a repo secret
+  # (a read token from an account that has accepted the model's licence) or the eval gate can't
+  # download it. See docs/CI.md.
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # for the sticky eval comment
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # Pinned HF models (~2 GB) for the ML detectors; the key changes when the policy file does.
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ hashFiles('policies/guard.yaml') }}
+          restore-keys: hf-
+
+      - name: Install
+        run: uv sync --locked
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: Validate datasets
+        run: uv run boundary-eval validate packages/eval/datasets
+
+      # Run the gates but do not fail the job yet: we post the comparison as a PR comment first,
+      # then enforce at the end, so a blocked PR always shows *why* it was blocked.
+      - name: Detector eval gate
+        id: detector
+        run: |
+          uv run boundary-eval detectors --suite golden --out packages/eval/results/ci.json --quiet
+          if uv run boundary-eval compare packages/eval/baselines/golden.json packages/eval/results/ci.json \
+               --md packages/eval/results/detector-compare.md; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: End-to-end gate (replay; skipped until a cassette is committed)
+        id: e2e
+        run: |
+          if [ -f packages/eval/cassettes/e2e.json ]; then
+            if uv run boundary-eval e2e --mode replay --gates packages/eval/gates.yaml \
+                 --out packages/eval/results/e2e.json --quiet; then
+              echo "passed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "passed=false" >> "$GITHUB_OUTPUT"
+            fi
+            cp packages/eval/results/e2e.md packages/eval/results/e2e-report.md 2>/dev/null || true
+          else
+            echo "passed=skipped" >> "$GITHUB_OUTPUT"
+            echo "_No e2e cassette committed yet; record it with \`boundary-eval e2e --mode record\`._" \
+              > packages/eval/results/e2e-report.md
+          fi
+
+      - name: Assemble eval report
+        if: always()
+        run: |
+          {
+            echo "<!-- boundary-eval-report -->"
+            echo "## Guard eval"
+            echo
+            [ -f packages/eval/results/detector-compare.md ] && cat packages/eval/results/detector-compare.md
+            echo
+            echo "### End-to-end"
+            echo
+            [ -f packages/eval/results/e2e-report.md ] && cat packages/eval/results/e2e-report.md
+          } > packages/eval/results/report.md
+          cat packages/eval/results/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment eval report on the PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- boundary-eval-report -->';
+            const body = fs.readFileSync('packages/eval/results/report.md', 'utf8');
+            const {owner, repo} = context.repo;
+            const issue = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {owner, repo, issue_number: issue});
+            const mine = comments.find(c => c.body && c.body.includes(marker));
+            if (mine) {
+              await github.rest.issues.updateComment({owner, repo, comment_id: mine.id, body});
+            } else {
+              await github.rest.issues.createComment({owner, repo, issue_number: issue, body});
+            }
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: packages/eval/results/
+          if-no-files-found: ignore
+
+      - name: Enforce gates
+        if: always()
+        run: |
+          fail=0
+          [ "${{ steps.detector.outputs.passed }}" = "false" ] && { echo "::error::detector eval gate failed"; fail=1; }
+          [ "${{ steps.e2e.outputs.passed }}" = "false" ] && { echo "::error::end-to-end gate failed"; fail=1; }
+          exit $fail
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dashboard
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Build (includes type check)
+        run: npm run build

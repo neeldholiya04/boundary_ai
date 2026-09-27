@@ -1,0 +1,39 @@
+# Local Postgres + Redis for development. Credentials and ports come from the root .env:
+#   docker compose --env-file .env -f infra/docker-compose.yml up -d
+# Both are bound to localhost only.
+name: boundary
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: boundary-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-boundary}
+      POSTGRES_USER: ${POSTGRES_USER:-boundary}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boundary}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-boundary} -d ${POSTGRES_DB:-boundary}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: boundary-redis
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:

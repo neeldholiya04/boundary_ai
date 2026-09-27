@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boundary-agent"
+version = "0.1.0"
+description = "boundary-ai agent: FastAPI control plane, guarded agent runtime and CLI entrypoint."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "aiosqlite>=0.21.0",
+  "asyncpg>=0.30.0",
+  "boundary-guard",
+  "fastapi>=0.115.0",
+  "httpx>=0.28.0",
+  "litellm>=1.60",
+  "mcp>=1.28.0,<2",
+  "pydantic-settings>=2.10.0",
+  "python-dotenv>=1.0",
+  "redis>=6.2.0",
+  "sqlalchemy[asyncio]>=2.0.36",
+  "sse-starlette>=3.0.0",
+  "uvicorn>=0.31.0",
+]
+
+[project.scripts]
+boundary = "boundary_agent.cli:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+boundary-guard = { workspace = true }

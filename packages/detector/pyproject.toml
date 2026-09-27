@@ -1,0 +1,29 @@
+[project]
+name = "boundary-detector"
+version = "0.1.0"
+description = "The injection detector we train end-to-end, targeting indirect injection in tool output."
+readme = "README.md"
+requires-python = ">=3.12"
+# Heavy training deps live in the `train` extra so the core install stays light. torch/transformers
+# come from boundary-guard[ml]; datasets from boundary-eval[build].
+dependencies = [
+    "boundary-guard",
+    "boundary-eval",
+]
+
+[project.optional-dependencies]
+train = [
+  "accelerate>=1.0",
+  "scikit-learn>=1.5",
+]
+
+[project.scripts]
+boundary-detector = "boundary_detector.cli:main"
+
+[tool.uv.sources]
+boundary-guard = { workspace = true }
+boundary-eval = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13.0"]
+build-backend = "uv_build"

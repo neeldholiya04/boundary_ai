@@ -1,0 +1,45 @@
+# Heuristic instruction-override / jailbreak phrasings. This is the cheap baseline the ML
+# detectors are compared against; expect false positives on text *about* prompt injection.
+name: jailbreak
+version: 1
+
+rules:
+  - id: ignore_previous
+    label: OVERRIDE
+    pattern: '\b(?:ignore|disregard|forget|override|bypass)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|preceding|all|any|your)\b[^.\n]{0,20}\b(?:instructions?|prompts?|rules|directions|guidelines|context)\b'
+    flags: [i]
+
+  - id: new_instructions
+    label: OVERRIDE
+    pattern: '\b(?:new|updated|revised|real|actual)\s+(?:system\s+)?instructions?\s*(?::|follow|are\b)'
+    flags: [i]
+
+  - id: system_prompt_override
+    label: OVERRIDE
+    pattern: '(?:^|\n)\s*(?:\[\s*system\s*\]|<\|?\s*(?:system|im_start)\s*\|?>|###\s*system\b|system\s*(?:prompt|message)?\s*:)'
+    flags: [i]
+
+  - id: role_hijack
+    label: ROLE_HIJACK
+    pattern: '\byou\s+are\s+(?:now|no\s+longer)\b[^.\n]{0,60}\b(?:DAN|jailbroken|unfiltered|unrestricted|developer\s+mode|without\s+(?:any\s+)?(?:restrictions|filters|rules))'
+    flags: [i]
+
+  - id: dan_family
+    label: JAILBREAK
+    pattern: '\b(?:do\s+anything\s+now|DAN\s+mode|developer\s+mode\s+(?:enabled|output)|jailbreak(?:en)?\s+mode|evil\s+confidant|AIM\s+mode)\b'
+    flags: [i]
+
+  - id: no_restrictions
+    label: JAILBREAK
+    pattern: '\b(?:pretend|imagine|act\s+as\s+if|roleplay\s+that)\b[^.\n]{0,60}\b(?:no|without)\s+(?:any\s+)?(?:restrictions|limitations|filters|guidelines|rules|content\s+polic(?:y|ies))'
+    flags: [i]
+
+  - id: reveal_system_prompt
+    label: EXFIL_PROMPT
+    pattern: '\b(?:reveal|print|repeat|show|output|leak|tell\s+me)\b[^.\n]{0,30}\b(?:your|the)\s+(?:system\s+prompt|initial\s+instructions|hidden\s+instructions|developer\s+message)'
+    flags: [i]
+
+  - id: hidden_directive
+    label: HIDDEN_DIRECTIVE
+    pattern: '\b(?:AI|assistant|agent|LLM|model)s?\b[^.\n]{0,40}\b(?:reading|processing|summari[sz]ing|visiting)\s+this\b[^.\n]{0,60}\b(?:must|should|need\s+to|are\s+instructed\s+to)\b'
+    flags: [i]

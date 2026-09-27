@@ -1,0 +1,104 @@
+# Production stack (Phase 12). Settings come from the root .env:
+#   docker compose --env-file .env -f infra/docker-compose.deploy.yml up -d --build
+name: boundary-deploy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-boundary}
+      POSTGRES_USER: ${POSTGRES_USER:-boundary}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boundary}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-boundary} -d ${POSTGRES_DB:-boundary}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis_data:/data
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/agent/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-boundary}:${POSTGRES_PASSWORD:-boundary}@postgres:5432/${POSTGRES_DB:-boundary}
+      REDIS_URL: redis://redis:6379/0
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN}
+      LLM_PROVIDER: litellm
+      ALLOW_DEMO_MOCK_PLANNER: "false"
+      LLM_MODEL: ${LLM_MODEL:-openai/gpt-4.1-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_BASE: ${LLM_API_BASE:-}
+      GUARD_POLICY_PATH: ${GUARD_POLICY_PATH-policies/guard.yaml}
+      GUARD_TOOL_OUTPUT_ON_BLOCK: ${GUARD_TOOL_OUTPUT_ON_BLOCK:-continue}
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      EXA_MCP_ENABLED: ${EXA_MCP_ENABLED:-true}
+      EXA_API_KEY: ${EXA_API_KEY:-}
+      BOUNDARY_SANDBOX_ROOT: /data/mcp-sandbox
+    expose:
+      - "8000"
+    volumes:
+      - mcp_sandbox:/data/mcp-sandbox
+      # Pinned guard models (~2 GB), kept across restarts so they download once.
+      - hf_cache:/root/.cache/huggingface
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/dashboard/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+    restart: unless-stopped
+    depends_on:
+      - api
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+      - api
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  redis_data:
+  mcp_sandbox:
+  hf_cache:
+  caddy_data:
+  caddy_config:
