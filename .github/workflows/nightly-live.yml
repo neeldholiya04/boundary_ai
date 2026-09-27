@@ -1,0 +1,90 @@
+name: nightly-live
+
+# Runs the end-to-end scenarios against a real model, refreshes the replay cassette, and opens a
+# PR if it changed (model drift or new scenarios). Needs OPENAI_API_KEY (or another provider key)
+# and HF_TOKEN as repo secrets; it skips cleanly when the LLM key is absent, so forks stay green.
+
+on:
+  schedule:
+    - cron: "17 4 * * *"  # 04:17 UTC daily
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "LLM_MODEL override (default: openai/gpt-4.1-mini)"
+        required: false
+        default: "openai/gpt-4.1-mini"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  HF_HUB_DISABLE_TELEMETRY: "1"
+  TOKENIZERS_PARALLELISM: "false"
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for an LLM key
+        id: keys
+        run: |
+          if [ -n "$OPENAI_API_KEY" ] || [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$GEMINI_API_KEY" ]; then
+            echo "have_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_key=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no LLM API key secret set; skipping the live run"
+          fi
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.keys.outputs.have_key == 'true'
+        with:
+          enable-cache: true
+
+      - name: Cache Hugging Face models
+        if: steps.keys.outputs.have_key == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ hashFiles('policies/guard.yaml') }}
+          restore-keys: hf-
+
+      - name: Install
+        if: steps.keys.outputs.have_key == 'true'
+        run: uv sync --locked
+
+      # `record` re-uses existing cassette entries and only fills gaps, so the cost is bounded by
+      # the scenario count and any prompts that changed since the last run.
+      - name: Record the e2e cassette against the live model
+        if: steps.keys.outputs.have_key == 'true'
+        run: |
+          uv run boundary-eval e2e --mode record \
+            --model "${{ github.event.inputs.model || 'openai/gpt-4.1-mini' }}" \
+            --out packages/eval/results/e2e-live.json
+
+      - name: Open a PR if the cassette changed
+        if: steps.keys.outputs.have_key == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          add-paths: packages/eval/cassettes/e2e.json
+          branch: nightly/refresh-e2e-cassette
+          title: "nightly: refresh e2e cassette"
+          commit-message: "chore: refresh e2e cassette from the live model"
+          body: |
+            Automated refresh of `packages/eval/cassettes/e2e.json` from the nightly live run.
+            Review the diff for model drift before merging; CI replays this cassette.
+          labels: automated, eval
+
+      - name: Upload live results
+        if: always() && steps.keys.outputs.have_key == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-live-results
+          path: packages/eval/results/
+          if-no-files-found: ignore

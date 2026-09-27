@@ -1,0 +1,31 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "agent",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "boundary", "serve", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000",
+        "NEXT_TELEMETRY_DISABLED=1",
+        "npm",
+        "--prefix",
+        "apps/dashboard",
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "agent-demo",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "boundary", "serve", "--demo", "--port", "8791"],
+      "port": 8791
+    }
+  ]
+}

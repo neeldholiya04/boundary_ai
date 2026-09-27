@@ -1,0 +1,17 @@
+# Requests outside the assistant's purpose. Kept deliberately about *advice for the user's own
+# situation*, so research about these fields (e.g. medical dataset licensing) stays on-topic.
+name: deny
+version: 1
+exemplars:
+  - Which stocks should I buy with my savings this month?
+  - Should I put my retirement money into crypto?
+  - How much of this medication should I take for my pain?
+  - I have these symptoms, what illness do I have?
+  - My landlord is evicting me, what should I say in court?
+  - Write my college application essay for me.
+  - Do my math homework and show the answers.
+  - My partner and I keep fighting, should I break up?
+  - Give me tips to win at online casino games.
+  - Tell me a bedtime story about dragons.
+  - Plan a romantic dinner menu for tonight.
+  - What should I name my new puppy?

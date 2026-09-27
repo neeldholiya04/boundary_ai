@@ -1,0 +1,21 @@
+# Our fine-tuned tool-output injection detector, for comparison against the shipped policy set.
+# Needs a trained model at packages/detector/model (see packages/detector/colab/). Run from the repo root so the
+# relative model path resolves. Shadow by default; promote into policies/guard.yaml once its
+# tool-output numbers beat the off-the-shelf detectors (docs/EVAL.md).
+version: 1
+
+defaults:
+  timeout_ms: 10000
+  mode: shadow
+
+policies:
+  - id: tool_output_injection_ours
+    stages: [tool_output]
+    detects: [injection]
+    detector:
+      type: hf_classifier
+      model: packages/detector/model
+      positive_labels: [INJECTION]
+      threshold: 0.71   # tuned on dev at ~10% FPR; test: 82.8% catch / 9.5% FPR
+      chunking: { max_tokens: 512, overlap_tokens: 64, max_chunks: 16 }
+    action: block

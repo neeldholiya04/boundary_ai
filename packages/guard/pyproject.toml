@@ -1,0 +1,28 @@
+[project]
+name = "boundary-guard"
+version = "0.1.0"
+description = "Composable input/output filtering layer for tool-calling LLM agents."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "json-repair>=0.30",
+  "jsonschema>=4.23",
+  "pydantic>=2.9",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# ML detectors (hf_classifier, presidio, embeddings, nli). The core install stays regex/schema only.
+ml = [
+  "torch>=2.4",
+  "transformers>=4.46,<5",
+  "sentencepiece>=0.2",
+  "sentence-transformers>=3.2",
+  "presidio-analyzer>=2.2.355",
+  "spacy>=3.8,<3.9",
+  "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13.0"]
+build-backend = "uv_build"

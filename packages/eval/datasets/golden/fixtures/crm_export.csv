@@ -1,0 +1,5 @@
+customer_id,full_name,email,phone,plan,last_ticket
+C-10231,Priya Raman,priya.raman@example.com,+1 (415) 555-0142,pro,Export to CSV drops unicode names
+C-10232,Tomás Okonkwo,t.okonkwo@example.net,+44 20 7946 0831,team,SSO login loop on Safari
+C-10233,Mei Lin Chau,meilin.chau@example.org,+61 2 5550 1987,free,Cannot delete old notebooks
+C-10234,Daniel Weiss,dweiss@example.com,+1 (212) 555-0199,pro,Billing shows two invoices for May

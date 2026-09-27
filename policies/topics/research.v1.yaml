@@ -1,0 +1,19 @@
+# On-purpose requests for the research assistant: exemplars, not rules. The topic policy compares
+# a request's embedding to these and to deny.v1.yaml; only the margin between them matters.
+name: research
+version: 1
+exemplars:
+  - Summarise the release notes of this open-source library into a note.
+  - Find the GitHub issue about this bug and write down the workaround.
+  - Compare two machine learning models and the datasets they were trained on.
+  - Explain how this security vulnerability works and how it was fixed.
+  - Research how a cloud service prices its API and write a short comparison.
+  - Read this paper and list its main contributions and limitations.
+  - What are the licensing terms for using this dataset in research?
+  - Look up the documentation for this configuration option.
+  - Write notes on the history of a programming language or tool.
+  - Review this README and point out unclear installation steps.
+  - Collect sources on how companies evaluate LLM applications.
+  - Summarise the discussion in this issue thread and who proposed what.
+  - How do medical imaging datasets handle patient consent and licensing?
+  - Research the market share of GPU vendors for AI training over time.

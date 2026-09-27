@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+coverage/
+htmlcov/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# App runtime data
+*.db
+*.sqlite3
+llm_cache.sqlite
+tmp/
+apps/sandbox-mcp/sandbox/*
+!mcp_server/sandbox/.gitkeep
+
+# Dashboard (Next.js)
+apps/dashboard/node_modules/
+apps/dashboard/.next/
+apps/dashboard/out/
+apps/dashboard/.turbo/
+apps/dashboard/build-output/
+apps/dashboard/tsconfig.tsbuildinfo
+
+# Models, caches, run outputs
+.cache/
+models/
+*.onnx
+*.safetensors
+packages/eval/results/
+# Derived / large detector artifacts (keep manifest, model card, training_summary)
+packages/detector/data/*.jsonl
+packages/detector/model/
+boundary-detector-model.zip
+
+# Course material (not ours to redistribute)
+*.pdf
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

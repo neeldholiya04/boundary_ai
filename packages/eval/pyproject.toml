@@ -1,0 +1,28 @@
+[project]
+name = "boundary-eval"
+version = "0.1.0"
+description = "Red-team datasets, scenario harness and metrics for boundary-guard."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "boundary-guard",
+  "pydantic>=2.9",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Only needed to (re)build the extended dataset snapshots from their public sources.
+build = [
+  "datasets>=3.0",
+  "langdetect>=1.0.9",
+]
+
+[project.scripts]
+boundary-eval = "boundary_eval.cli:main"
+
+[tool.uv.sources]
+boundary-guard = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13.0"]
+build-backend = "uv_build"
