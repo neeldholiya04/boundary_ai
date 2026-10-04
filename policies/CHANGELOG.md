@@ -4,6 +4,14 @@ Every change to `guard.yaml`, a ruleset, or a schema bumps `version` in `guard.y
 and gets an entry here. Eval results are stamped with the config hash, so each entry
 should say which numbers it is expected to move.
 
+## v4
+- `topic`: exemplars moved to `topics/research.v2.yaml` / `topics/deny.v2.yaml`. Factual market and
+  company lookups ("what is this company trading at", market cap, index/FX prices, earnings) were
+  blocked as off-topic: they score ~0.2–0.3 against both lists and the deny side's investment-advice
+  exemplar won by a few hundredths at margin 0. Added six allow exemplars for such lookups and one deny
+  exemplar for "is this stock a good buy for me", so personal investment advice stays blocked.
+  Expected movement: topic FPR down on finance-flavoured research; catch rate unchanged.
+
 ## v3
 - Thresholds tuned on the extended dev split at a ≤2% dev FPR budget (`boundary-eval tune --max-fpr 0.02`).
 - User input: **Llama Prompt Guard 2 86M** (`user_injection_promptguard`) replaces ProtectAI, at the model's

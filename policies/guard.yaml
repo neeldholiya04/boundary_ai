@@ -4,7 +4,7 @@
 # This is the production set: the enforced detectors plus cheap regex baselines in shadow. Detectors kept only for comparison live in policies/experiments/ so they don't add
 # latency here. Thresholds are tuned on the dev split at a ≤2% dev false-positive budget
 # (`boundary-eval tune <result> --max-fpr 0.02`); see docs/EVAL.md for the sweep.
-version: 3
+version: 4
 
 defaults:
   timeout_ms: 400
@@ -48,8 +48,8 @@ policies:
       type: embeddings_topic
       model: sentence-transformers/all-MiniLM-L6-v2
       revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
-      allow: topics/research.v1.yaml
-      deny: topics/deny.v1.yaml
+      allow: topics/research.v2.yaml
+      deny: topics/deny.v2.yaml
       margin: 0.0
     action: block
     timeout_ms: 1000

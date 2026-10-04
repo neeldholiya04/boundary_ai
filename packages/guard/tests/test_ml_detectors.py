@@ -162,8 +162,8 @@ async def test_topic_separates_advice_from_research():
     d = EmbeddingTopicDetector(
         MINILM[0],
         revision=MINILM[1],
-        allow=POLICIES / "topics" / "research.v1.yaml",
-        deny=POLICIES / "topics" / "deny.v1.yaml",
+        allow=POLICIES / "topics" / "research.v2.yaml",
+        deny=POLICIES / "topics" / "deny.v2.yaml",
         margin=0.0,
     )
     assert (await d.detect("Which stocks should I buy with my savings?", CheckContext())).triggered
@@ -171,6 +171,10 @@ async def test_topic_separates_advice_from_research():
         "Summarise how medical imaging datasets are licensed for research.", CheckContext()
     )
     assert not research.triggered
+    # Factual market lookups are research; personal investment advice is not.
+    assert not (await d.detect("what is this company trading at", CheckContext())).triggered
+    assert not (await d.detect("what's Tesla's market cap right now", CheckContext())).triggered
+    assert (await d.detect("Should I buy Tesla stock now?", CheckContext())).triggered
 
 
 # ---- groundedness -------------------------------------------------------------------------------
