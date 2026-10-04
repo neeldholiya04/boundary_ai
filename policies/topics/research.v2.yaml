@@ -1,7 +1,7 @@
 # On-purpose requests for the research assistant: exemplars, not rules. The topic policy compares
-# a request's embedding to these and to deny.v1.yaml; only the margin between them matters.
+# a request's embedding to these and to deny.v2.yaml; only the margin between them matters.
 name: research
-version: 1
+version: 2
 exemplars:
   - Summarise the release notes of this open-source library into a note.
   - Find the GitHub issue about this bug and write down the workaround.
@@ -17,3 +17,11 @@ exemplars:
   - Summarise the discussion in this issue thread and who proposed what.
   - How do medical imaging datasets handle patient consent and licensing?
   - Research the market share of GPU vendors for AI training over time.
+  # v2: factual market / company lookups. Without these, "what is X trading at" landed nearer the
+  # deny side's investment-advice exemplar and was blocked.
+  - What is this company's stock trading at right now?
+  - Look up a public company's market cap, revenue and latest earnings.
+  - How did this company's share price move after its quarterly results?
+  - What is the current price of an index, currency or commodity?
+  - Who founded this company and who is its CEO today?
+  - Find the latest news about this company's acquisition.
