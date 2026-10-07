@@ -1,5 +1,71 @@
-http://{$APP_DOMAIN} {
-    reverse_proxy /api/* api:8000
-    reverse_proxy /health api:8000
-    reverse_proxy web:3000
+# Reverse proxy for the deployment (infra/docker-compose.deploy.yml). Caddy gets and renews the HTTPS
+# certificates for both hosts itself (Let's Encrypt); with sslip.io names no domain is needed.
+#
+#   PUBLIC_HOST  the public playground: the Playground page and its two APIs, nothing else
+#   ADMIN_HOST   the full dashboard and API, behind basic auth
+#
+# /metrics is never served through the proxy: Prometheus scrapes the agent on the internal network.
+
+{
+	# "email you@example.org" when ACME_EMAIL is set in .env, otherwise nothing (no contact address).
+	{$ACME_EMAIL_DIRECTIVE}
+}
+
+(hardening) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+{$PUBLIC_HOST} {
+	import hardening
+
+	@playground_api path /api/guard/scan /api/playground/* /health
+	handle @playground_api {
+		reverse_proxy agent:8000
+	}
+
+	# Everything else in the API (chat, policies, approvals, logs, guard controls) and /metrics.
+	@private path /api/* /metrics
+	handle @private {
+		respond 404
+	}
+
+	@playground_page path /playground /_next/* /favicon.ico
+	handle @playground_page {
+		reverse_proxy dashboard:3000
+	}
+
+	handle {
+		redir * /playground 302
+	}
+}
+
+{$ADMIN_HOST} {
+	import hardening
+
+	basic_auth {
+		{$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+	}
+
+	@metrics path /metrics
+	handle @metrics {
+		respond 404
+	}
+
+	@api path /api/* /health
+	handle @api {
+		reverse_proxy agent:8000 {
+			flush_interval -1 # live updates (server-sent events) stream straight through
+		}
+	}
+
+	handle {
+		reverse_proxy dashboard:3000
+	}
 }

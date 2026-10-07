@@ -24,6 +24,22 @@ def test_blocking_profile_makes_every_async_policy_blocking(tmp_path):
     assert was_async, "the production policy should have at least one async check"
     assert all(p.get("execution") != "async" for p in rewritten["policies"])
     assert [p["id"] for p in rewritten["policies"]] == [p["id"] for p in original["policies"]]
+    # File parameters are absolute, so the copy works outside policies/ (e.g. a read-only image).
+    files = [
+        v
+        for p in rewritten["policies"]
+        for k, v in p["detector"].items()
+        if k in ("ruleset", "allow", "schema")
+    ]
+    assert files and all(Path(f).is_absolute() and Path(f).exists() for f in files)
+    from boundary_guard import load_config
+
+    assert load_config(target).version == original["version"]  # valid config from the temp dir
+
+
+def test_sandbox_page_follows_the_container_sandbox_root(monkeypatch):
+    monkeypatch.setenv("BOUNDARY_SANDBOX_ROOT", "/data/mcp-sandbox")
+    assert loadtest.sandbox_page_path() == Path("/data/mcp-sandbox/loadtest/page.md")
 
 
 def test_metric_total_counts_app_source_only():

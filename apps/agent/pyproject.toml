@@ -12,6 +12,8 @@ dependencies = [
   "aiosqlite>=0.21.0",
   "asyncpg>=0.30.0",
   "boundary-guard[metrics]",
+  # The agent launches the sandbox file server itself (python -m boundary_mcp.server).
+  "boundary-sandbox-mcp",
   "fastapi>=0.115.0",
   "httpx>=0.28.0",
   "langfuse>=3",
@@ -30,6 +32,10 @@ dependencies = [
 boundary = "boundary_agent.cli:main"
 
 [project.optional-dependencies]
+# The production policy's detectors (transformers, Presidio, sentence-transformers, NLI).
+ml = ["boundary-guard[ml]"]
+# Playground attack mode reuses the end-to-end harness, scenarios and cassette.
+playground = ["boundary-eval"]
 dev = [
   "pytest>=9.0.0",
 ]
@@ -42,3 +48,5 @@ where = ["src"]
 
 [tool.uv.sources]
 boundary-guard = { workspace = true }
+boundary-sandbox-mcp = { workspace = true }
+boundary-eval = { workspace = true }

@@ -1,7 +1,7 @@
 # CI and eval gates
 
 Every push and PR runs [`.github/workflows/ci.yml`](../.github/workflows/ci.yml): lint, tests, the
-dataset validator, the **detector eval gate**, the **end-to-end gate** (when a cassette exists), and
+dataset validator, the **detector eval gate**, the **end-to-end gate** (cassette replay), and
 the dashboard build. A nightly job refreshes the replay cassette against a live model.
 
 ## The `test` job, in order
@@ -46,11 +46,27 @@ uv run boundary-eval e2e --mode record --out packages/eval/results/e2e.json   # 
 
 ## Secrets and setup (one-time, needs repo admin)
 
-- `HF_TOKEN` — a Hugging Face **read** token from an account that has accepted the Llama Prompt
-  Guard 2 licence. Without it the detector gate cannot download the production model.
-- `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`) — only for the nightly live job.
-- **Branch protection** on `main`: require the `test` and `web` checks to pass before merge
-  (Settings → Branches). This is what makes a failing gate actually block a merge.
+Step by step in [DEPLOY.md, part 3](DEPLOY.md#part-3-cicd):
+
+- **`HF_TOKEN`**: a Hugging Face **read** token from an account that has accepted the Llama
+  Prompt Guard 2 licence. Without it the detector gate can't download the production model.
+- **`OPENAI_API_KEY`** (or `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`): only for the nightly live job.
+- **Actions settings:** allow Actions to create pull requests (the nightly cassette refresh opens one).
+- **A ruleset on `main`**: PRs required, and the `test` and `web` checks must pass. This is what
+  makes a failing gate actually block a merge.
+
+## Deploy (CD)
+
+`.github/workflows/deploy.yml` runs after `ci` succeeds on a push to `main`, or by hand (*Run
+workflow*, with an optional commit to roll back to).
+
+1. It assumes an AWS role through GitHub's OIDC token. There's no stored AWS key or SSH key, and
+   the role can only send a command to the one server.
+2. It runs `infra/deploy.sh` on the server through Systems Manager, at that exact commit.
+3. It smoke-tests the live site's access rules (`infra/smoke-test.sh`).
+
+It does nothing until the `production` environment is configured ([DEPLOY.md, steps
+18–19](DEPLOY.md#18-cd-the-aws-side-once)).
 
 ## Nightly live run
 

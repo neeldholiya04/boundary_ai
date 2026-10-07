@@ -685,6 +685,33 @@ Each phase ends with something that runs, is tested, and is committed. Sizes: S 
 - **Left for you:** the blocked-PR screenshot (needs the `HF_TOKEN` CI secret and branch protection).
 
 ### Phase 12 — Operations (later)
+
+**Phase 12 progress (repo side done; going live on AWS by the owner, following docs/DEPLOY.md):**
+- **Target:** one EC2 t4g.large (8 GB, Graviton, Ubuntu 24.04), with an Elastic IP and two
+  sslip.io hostnames (public playground and admin). The machine size comes from the Phase 11 memory
+  finding.
+- **Images:**
+  - The agent image is built from `uv.lock`: CPU PyTorch, guard ML extras, sandbox server and
+    playground, run as a non-root user. Models download into a volume on first start. The agent
+    now declares its sandbox, ML and playground dependencies explicitly.
+  - The dashboard image uses same-origin API calls.
+  - `.dockerignore` now excludes `.venv` and models; it previously sent GBs of build context.
+- **Caddy:** HTTPS for both hosts. The public host serves only the Playground page plus
+  `/api/guard/scan` and `/api/playground/*`, and 404s everything else in the API. The admin host is
+  behind basic auth (bcrypt hash). `/metrics` is never proxied, and HSTS / nosniff / frame-deny
+  headers are set.
+- **Compose:** images tagged with `RELEASE` (git SHA), so rollback is `RELEASE=<prev> up -d`.
+  Required settings fail fast. The agent trusts forwarded IPs (it's reachable only from Caddy), so
+  rate limits apply per visitor. Prometheus and Grafana are opt-in, with Grafana reached through an
+  SSH tunnel.
+- **Load test** runs inside the agent container on the server (sandbox root and temp policy are
+  container-aware).
+- **Rehearsed locally** on the same arm64 images: `infra/smoke-test.sh` passed all access checks;
+  a scan and an attack replay worked through the proxy; the agent used ~1.1 GB. That surfaced and
+  fixed: owner-only source directories unreadable by the image's non-root user, and Caddy failing
+  on an empty `ACME_EMAIL`.
+- **Still to do on the server:** go live, run the smoke test, run the load test, and add Langfuse
+  and the CI secret.
 - **Hosting.** Our CPU models need roughly 2–4 GB RAM, so check free-tier limits. Candidate setups:
   - (a) an always-free ARM VM (e.g. Oracle Cloud) running the existing `infra/docker-compose.deploy.yml` + Caddy.
     Simplest, and it reuses the existing deploy files; Caddy handles custom-domain TLS.

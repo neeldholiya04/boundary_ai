@@ -285,7 +285,15 @@ Each phase below says **what** it delivered, **why** it mattered, and **how** we
     paged out and compete for the CPU. That sets the RAM requirement for deployment, and suggests
     taking shadow checks off the request path.
 
-### Phase 12 — still to come (see [`PLAN.md`](docs/PLAN.md))
+### Phase 12 — Deployment (in progress)
+- **What:** the app on one AWS server (t4g.large, 8 GB, ARM), with HTTPS and two addresses. The
+  public one shows only the Playground; the admin one has the full dashboard and needs a password.
+- **Why:** a guardrails demo people can actually try, and real-server performance numbers (the laptop
+  was too short of memory to judge).
+- **How:** Docker images built from the same lockfile CI tests. Caddy handles HTTPS and decides who
+  sees what. Secrets stay in a server-only `.env`. Releases are tagged with the git commit, so
+  rolling back is one command. The whole stack was rehearsed locally first, and an automated smoke
+  test checks the access rules. Step-by-step: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 - **12:** deployment, a public URL, and production monitoring (deliberately left for last).
 
 ---
