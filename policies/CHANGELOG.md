@@ -4,6 +4,18 @@ Every change to `guard.yaml`, a ruleset, or a schema bumps `version` in `guard.y
 and gets an entry here. Eval results are stamped with the config hash, so each entry
 should say which numbers it is expected to move.
 
+## v7
+- `secrets` runs **first** (`redact_first`): when it redacts, the stage's other policies (Presidio,
+  toxicity, the NLI check, any LLM-judge rule from the dashboard) get the redacted text, so no model sees
+  a raw key and none can send one to a provider. In shadow nothing is rewritten, so the others see the
+  original text, as before. `secrets_egress` still blocks.
+- Expected movement: `toxicity` no longer fires on key text (golden FPR 7.7% → 0%, extended 1.4% →
+  1.0%: the spaced-out key it read as abuse is now `<OPENAI_KEY_1>`), and `topic` stops flagging key
+  questions (extended 1.9% → 0%). `tool_output_injection_protectai` moves the other way on extended (FPR
+  10.8% → 12.0%, shadow): it reads some `<OPENAI_KEY_1>` placeholders as instruction-like. Catch rates
+  are unchanged everywhere. The e2e cassette gained one response (`e2e-sec-readback` under `enforce`,
+  where the enforced injection detector now sees the redacted file).
+
 ## v6
 - `secrets` / `secrets_egress` scan **decoded views**: base64 runs (standard or URL-safe, also after
   `NAME=`, and base64 of base64) that decode to text, and keys spelled out with spaces (`s k - p r o j

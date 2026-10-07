@@ -18,6 +18,7 @@ from typing import Any
 import yaml
 
 from boundary_guard.core.detector import Detector, file_digest, register_detector
+from boundary_guard.core.redact import redact
 from boundary_guard.core.types import CheckContext, Detection, Span
 
 # Above this size, matching runs in a worker thread so a slow pattern can't stall the event loop
@@ -147,6 +148,9 @@ class RegexRulesDetector(Detector):
     Policy params beyond the ruleset:
         decode: [base64, spaced]         # also scan decoded views; a hit spans the whole encoded run
         known_secrets_env: ['*_API_KEY'] # env var names whose values must never appear, in any format
+        redact_first: true               # run before the stage's other policies and hand them the
+                                         # redacted text, so no other detector (a toxicity model, an
+                                         # LLM judge) ever sees the raw match
     """
 
     type_name = "regex_rules"
@@ -159,6 +163,7 @@ class RegexRulesDetector(Detector):
         decode: list[str] | None = None,
         known_secrets_env: list[str] | None = None,
         environ: dict[str, str] | None = None,
+        redact_first: bool = False,
     ) -> None:
         self.ruleset_path = ruleset_path
         raw = yaml.safe_load(ruleset_path.read_text(encoding="utf-8"))
@@ -193,12 +198,19 @@ class RegexRulesDetector(Detector):
         self.known_secrets_env = sorted(known_secrets_env or [])
         known = known_secret_values(self.known_secrets_env, environ) if known_secrets_env else []
         self._known = [form for value in known for form in _known_forms(value)]
+        # As a transform the pipeline runs this first and, when the policy enforces a redaction, passes
+        # the rewritten text on to every other policy at the stage.
+        self.transform = redact_first
 
     async def detect(self, text: str, ctx: CheckContext) -> Detection:
         known = ctx.metadata.get("source") not in UNTRUSTED_SOURCES
         if len(text) > _THREAD_THRESHOLD_CHARS:
-            return await asyncio.to_thread(self._scan, text, known=known)
-        return self._scan(text, known=known)
+            detection = await asyncio.to_thread(self._scan, text, known=known)
+        else:
+            detection = self._scan(text, known=known)
+        if self.transform and detection.spans:
+            detection.rewrite = redact(text, detection.spans)
+        return detection
 
     def _match(self, text: str, *, known: bool = True) -> list[tuple[Span, str]]:
         """Rule and known-secret hits on one view of the text, as (span, reason) pairs."""
@@ -287,6 +299,7 @@ class RegexRulesDetector(Detector):
         return (
             f"{file_digest(self.ruleset_path)}:{','.join(self.enabled or ['*'])}"
             f":decode={','.join(self.decode)}:known={','.join(self.known_secrets_env)}"
+            f":first={self.transform}"
         )
 
 
@@ -297,4 +310,5 @@ def _factory(params: dict[str, Any], base_dir: Path) -> Detector:
         enabled=params.get("rules"),
         decode=params.get("decode"),
         known_secrets_env=params.get("known_secrets_env"),
+        redact_first=bool(params.get("redact_first", False)),
     )
