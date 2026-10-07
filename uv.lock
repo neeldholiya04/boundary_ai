@@ -499,9 +499,13 @@ dependencies = [
     { name = "jsonschema" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "regex" },
 ]
 
 [package.optional-dependencies]
+judge = [
+    { name = "litellm" },
+]
 metrics = [
     { name = "prometheus-client" },
 ]
@@ -521,10 +525,12 @@ requires-dist = [
     { name = "en-core-web-sm", marker = "extra == 'ml'", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "json-repair", specifier = ">=0.30" },
     { name = "jsonschema", specifier = ">=4.23" },
+    { name = "litellm", marker = "extra == 'judge'", specifier = ">=1.50" },
     { name = "presidio-analyzer", marker = "extra == 'ml'", specifier = ">=2.2.355" },
     { name = "prometheus-client", marker = "extra == 'metrics'", specifier = ">=0.20" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "regex", specifier = ">=2024.9" },
     { name = "sentence-transformers", marker = "extra == 'ml'", specifier = ">=3.2" },
     { name = "sentencepiece", marker = "extra == 'ml'", specifier = ">=0.2" },
     { name = "spacy", marker = "extra == 'ml'", specifier = ">=3.8,<3.9" },
@@ -532,7 +538,7 @@ requires-dist = [
     { name = "torch", marker = "sys_platform != 'linux' and extra == 'ml'", specifier = ">=2.4" },
     { name = "transformers", marker = "extra == 'ml'", specifier = ">=4.46,<5" },
 ]
-provides-extras = ["ml", "metrics"]
+provides-extras = ["ml", "judge", "metrics"]
 
 [[package]]
 name = "boundary-sandbox-mcp"

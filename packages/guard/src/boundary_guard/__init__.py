@@ -1,6 +1,6 @@
 """boundary_guard: composable input/output filtering for tool-calling LLM agents."""
 
-from boundary_guard.core.config import GuardConfig, load_config
+from boundary_guard.core.config import GuardConfig, PolicyConfig, load_config
 from boundary_guard.core.detector import Detector, register_detector
 from boundary_guard.core.pipeline import DecisionEvent, DecisionSink, Guard
 from boundary_guard.core.types import (
@@ -29,6 +29,7 @@ __all__ = [
     "GuardResult",
     "Mode",
     "OnError",
+    "PolicyConfig",
     "PolicyDecision",
     "Span",
     "Stage",

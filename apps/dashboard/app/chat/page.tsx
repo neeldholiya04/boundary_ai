@@ -90,6 +90,7 @@ export default function ChatPage() {
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [traceUrl, setTraceUrl] = useState<string | null>(null);
+  const [guardNotices, setGuardNotices] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
 
@@ -154,6 +155,7 @@ export default function ChatPage() {
     });
     await loadConversations();
     setSelectedConversationId(response.id);
+    setGuardNotices([]);
     setMessages([]);
     setDraft("");
   }
@@ -202,6 +204,7 @@ export default function ChatPage() {
       setDraft("");
       setStatus(`${response.status}: ${response.assistant_message}`);
       setTraceUrl(response.trace_url ?? null);
+      setGuardNotices(response.guard_notices ?? []);
       await loadConversations();
       setSelectedConversationId(response.conversation_id);
       await loadMessages(response.conversation_id);
@@ -239,7 +242,10 @@ export default function ChatPage() {
                 className={`conversation-item${
                   selectedConversationId === conversation.id ? " active" : ""
                 }`}
-                onClick={() => setSelectedConversationId(conversation.id)}
+                onClick={() => {
+                  setSelectedConversationId(conversation.id);
+                  setGuardNotices([]); // notices belong to the last reply in the chat they came from
+                }}
               >
                 <div className="conversation-item-top">
                   <strong className="conversation-title">
@@ -274,6 +280,11 @@ export default function ChatPage() {
                   Waiting for approval: {selectedConversation.pending_approval_reason}
                 </p>
               )}
+              {guardNotices.map((notice) => (
+                <p key={notice} className="chat-inline-status warning" role="status">
+                  {notice}
+                </p>
+              ))}
             </div>
             <div className="row">
               {traceUrl && (

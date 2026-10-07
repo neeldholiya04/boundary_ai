@@ -736,3 +736,34 @@ button {
   color: var(--danger);
   opacity: 0.85;
 }
+
+/* Guard rules editor */
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+fieldset.field {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+fieldset.field legend {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.error {
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+
+.origin-badge {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}

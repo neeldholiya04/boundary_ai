@@ -76,6 +76,12 @@ class GuardModeRequest(BaseModel):
     mode: Literal["enforce", "shadow", "off"]
 
 
+class GuardRuleTestRequest(BaseModel):
+    spec: dict[str, Any]
+    # Also check the eval set's benign records at the rule's stages (judge rules: a small sample).
+    sample_benign: bool = True
+
+
 class EventPayload(BaseModel):
     type: str
     payload: dict[str, Any]
