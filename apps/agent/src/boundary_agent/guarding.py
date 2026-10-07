@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -285,6 +286,27 @@ class GuardDecisionSink:
         await self.broker.publish({"type": "guard.async_decision", "payload": payload})
 
 
+PLACEHOLDER = re.compile(r"<[A-Z][A-Z0-9_]*_\d+>")
+
+
+def redaction_notice(outcome: GuardOutcome | None, original: str) -> str | None:
+    """Tell the user what the guard removed from their own message, by placeholder and policy.
+
+    Without this a pasted key silently becomes `<OPENAI_KEY_1>`, and a file the user asked for gets
+    the placeholder instead of the value with nothing to say why.
+    """
+    if outcome is None or outcome.text == original:
+        return None
+    placeholders = sorted(set(PLACEHOLDER.findall(outcome.text)) - set(PLACEHOLDER.findall(original)))
+    if not placeholders:
+        return None
+    policies = ", ".join(outcome.policies(Action.REDACT)) or "the guard"
+    return (
+        f"Removed from your message before it was stored or sent to the model: {', '.join(placeholders)} "
+        f"({policies}). The assistant only sees the placeholder, so it can't use or write the original value."
+    )
+
+
 def withheld_result(outcome: GuardOutcome, *, reviewed: bool = False) -> dict[str, Any]:
     """What the planner (and the Message table) sees in place of blocked tool output."""
     policies = outcome.policies(Action.BLOCK) or outcome.policies(Action.ESCALATE)
@@ -378,5 +400,6 @@ __all__ = [
     "decision_payload",
     "mode_counts",
     "redacted_tool_result",
+    "redaction_notice",
     "withheld_result",
 ]

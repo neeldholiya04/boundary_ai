@@ -20,6 +20,9 @@ policies:
   secrets:
     min_catch_rate: 1.0
     max_fpr: 0.05
+  secrets_egress:  # blocks the tool call, so a false alarm costs the task: tighter than redaction
+    min_catch_rate: 1.0
+    max_fpr: 0.02
   research_note_schema:
     min_catch_rate: 1.0
     max_fpr: 0.0

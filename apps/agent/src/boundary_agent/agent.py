@@ -10,7 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from boundary_agent.audit import AuditLogger
 from boundary_agent.config import Settings
-from boundary_agent.guarding import GuardAdapter, GuardOutcome, redacted_tool_result, withheld_result
+from boundary_agent.guarding import (
+    GuardAdapter,
+    GuardOutcome,
+    redacted_tool_result,
+    redaction_notice,
+    withheld_result,
+)
 from boundary_agent.llm import BasePlanner
 from boundary_agent.mcp_manager import MCPManager
 from boundary_agent.models import ApprovalRequest, Conversation, MCPServer, Message, Policy, Run
@@ -132,6 +138,8 @@ class AgentRuntime:
         )
 
         response = await self._run_planner_loop(session, conversation, run, user_text, tools, [])
+        if notice := redaction_notice(outcome, user_message):
+            response.guard_notices.append(notice)
         await session.commit()
         return response
 

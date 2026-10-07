@@ -4,6 +4,38 @@ Every change to `guard.yaml`, a ruleset, or a schema bumps `version` in `guard.y
 and gets an entry here. Eval results are stamped with the config hash, so each entry
 should say which numbers it is expected to move.
 
+## v5
+- **Secrets, after a live leak.** A user pasted a short `sk-proj-` key into chat; it was stored raw,
+  written to `.env`, read back by a file search and printed in the answer, and `secrets` scored 0.0 at
+  every hop. Causes: no secrets check on user input, the OpenAI rule required 40+ characters after
+  `sk-proj-`, the assignment rule's `\b` never matched inside `OPENAI_API_KEY`, and the eval only held
+  key shapes the ruleset already knew (100% catch on 6 positives; 0 secrets in the extended set).
+- `rules/secrets.v2.yaml`: any OpenAI key shape (legacy, short project keys; body must mix digits and
+  capitals), Groq, Hugging Face, xAI, GitLab, npm, SendGrid, Mailgun, Shopify and Twilio keys, Slack and
+  Discord webhook URLs, `user:pass@` in any URL, `Authorization: Bearer|Token|Basic`, credentials in
+  query strings, `NAME=value` with prefixed names, passwords with symbols (assigned or "the password is
+  …"), natural phrasing ("my api key is …"), and two high-entropy rules for unnamed formats (32+ chars
+  with upper/lower/digit, or 40–128 base64 chars with `/`/`+`; entropy ≥ 4.5; skipped when the value is
+  base64 of readable text). The allowlist adds placeholders (`sk-xxxx`, `YOUR_API_KEY`, `${VAR}`,
+  elided `...`), default dev passwords, lockfile `sha512-` hashes, Stripe test/publishable keys, ssh
+  public keys, IPFS/Bitcoin ids, encoded image/PDF headers and PEM public-key bodies. Every rule is
+  timed on 20k-char adversarial inputs in the tests (v2's first draft had a quadratic `\s*…\s*`).
+- `secrets` now covers **user_input, tool_output, final_output** and **redacts** (the run carries on
+  with `<OPENAI_KEY_1>`, and the user gets a `guard_notices` entry saying what was removed); new
+  `secrets_egress` keeps **block** on tool_args, since arguments are never rewritten. Gates: 100% catch
+  for both, FPR ≤ 5% for `secrets` and ≤ 2% for `secrets_egress` (a false alarm there blocks the task).
+- Eval: 21 hand-written golden records (the incident at all four stages, other providers, decoys) and a
+  generated `synthetic_secrets` source (193 records, 17 key formats). On test, v1 → v2: golden 40% →
+  100% catch at 0% FPR (15 / 53); extended 58% → 100% catch at 0% FPR (88 / 1,135). The synthetic
+  source was written alongside v2, so read it as a regression check, not an independent estimate.
+- Known limits: random public ids that stand alone (a bare Google Docs id, a Solana address, a reCAPTCHA
+  site key) are redacted too; hex-only keys with no name nearby (Datadog, GCP `private_key_id`) and a
+  key hidden inside base64 of other text are not detected.
+- Expected movement: the new decoys expose existing false alarms on key-related text.
+  `tool_output_injection_protectai` FPR rises (golden 41.7% → 50.0%, extended 4.4% → 9.2%: it flags pages
+  about keys and pages containing keys, so such pages also taint the run), and `topic` blocks 2 of 54
+  extended user questions about where keys live (0% → 3.7%). Nothing else moves.
+
 ## v4
 - `topic`: exemplars moved to `topics/research.v2.yaml` / `topics/deny.v2.yaml`. Factual market and
   company lookups ("what is this company trading at", market cap, index/FX prices, earnings) were

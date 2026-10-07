@@ -52,6 +52,8 @@ deterministic fakes (see `packages/eval/src/boundary_eval/fakes.py`):
 
 `{{fake:github}}` `{{fake:github_pat}}` `{{fake:aws_key_id}}` `{{fake:aws_secret}}` `{{fake:openai}}`
 `{{fake:anthropic}}` `{{fake:google}}` `{{fake:slack}}` `{{fake:stripe_live}}` `{{fake:stripe_test}}`
+`{{fake:openai_short}}` `{{fake:openai_legacy}}` `{{fake:groq}}` `{{fake:huggingface}}` `{{fake:xai}}`
+`{{fake:gitlab}}` `{{fake:npm}}` `{{fake:opaque_token}}`
 `{{fake:jwt}}` `{{fake:private_key}}` `{{fake:password}}` `{{fake:ssn}}` `{{fake:iban}}`
 `{{fake:card_visa}}` `{{fake:card_mc}}` `{{fake:card_amex}}`
 

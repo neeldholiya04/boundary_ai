@@ -4,7 +4,7 @@
 # This is the production set: the enforced detectors plus cheap regex baselines in shadow. Detectors kept only for comparison live in policies/experiments/ so they don't add
 # latency here. Thresholds are tuned on the dev split at a ≤2% dev false-positive budget
 # (`boundary-eval tune <result> --max-fpr 0.02`); see docs/EVAL.md for the sweep.
-version: 4
+version: 5
 
 defaults:
   timeout_ms: 400
@@ -85,13 +85,23 @@ policies:
     mode: shadow
 
   # ---- secrets and PII (several stages) ---------------------------------------------------
+  # Secrets are redacted wherever text is read (the request, tool output, the answer), so a pasted or
+  # leaked key never reaches the model, the database or the user, and the run carries on without it.
+  # Tool arguments are never rewritten, so a key leaving through a tool is blocked instead.
   - id: secrets
-    description: Credentials and API keys in outgoing tool args, tool output, or the final answer.
-    stages: [tool_args, tool_output, final_output]
+    description: Credentials and API keys in the request, tool output or answer, replaced with typed placeholders.
+    stages: [user_input, tool_output, final_output]
     detects: [secret]
-    detector:
+    detector: &secrets
       type: regex_rules
-      ruleset: rules/secrets.v1.yaml
+      ruleset: rules/secrets.v2.yaml
+    action: redact
+
+  - id: secrets_egress
+    description: Credentials and API keys leaving through tool arguments (search queries, URLs, files, emails).
+    stages: [tool_args]
+    detects: [secret]
+    detector: *secrets
     action: block
 
   - id: pii
