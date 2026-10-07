@@ -39,6 +39,7 @@ export type ChatResponse = {
     is_error: boolean;
   }[];
   approval_request_id?: string | null;
+  trace_url?: string | null;
 };
 
 export type Policy = {
@@ -144,3 +145,76 @@ export type GuardStats = {
   config_hash?: string;
   policies?: GuardStat[];
 };
+
+// ---- Playground -------------------------------------------------------------------------------
+
+export type GuardStage = "user_input" | "tool_args" | "tool_output" | "final_output";
+
+export type ScanSpan = { start: number; end: number; label: string };
+
+export type ScanPolicy = {
+  policy_id: string;
+  mode: string;
+  execution: string;
+  detector: string;
+  action: string;
+  would_action: string;
+  score: number | null;
+  threshold: number | null;
+  reasons: string[];
+  spans: ScanSpan[];
+  latency_ms: number;
+  error: string | null;
+};
+
+export type ScanResult = {
+  stage: GuardStage;
+  action: string;
+  would_action: string;
+  text: string;
+  latency_ms: number;
+  config_hash: string;
+  pending_async: string[];
+  policies: ScanPolicy[];
+};
+
+export type PlaygroundScenario = {
+  id: string;
+  split: string;
+  user_task: string;
+  notes: string;
+  page: string;
+};
+
+export type PlaygroundScenarios = {
+  scenarios: PlaygroundScenario[];
+  custom_task: string;
+  live_runs: boolean;
+  max_input_chars: number;
+};
+
+export type AttackToolCall = { tool: string; arguments: Record<string, unknown> };
+
+export type AttackRun = {
+  config: string;
+  label: string;
+  status: string;
+  final_message: string;
+  tool_calls: AttackToolCall[];
+  guard_flags: { stage: string; policy: string; mode: string; action: string; would_action: string; tool: string }[];
+  unexpected_actions: AttackToolCall[];
+  attack_success: boolean | null;
+  task_success: boolean;
+  steps: number;
+  cost_usd: number;
+  run_id: string;
+  trace_url: string | null;
+};
+
+export type AttackResult = {
+  scenario_id: string;
+  user_task: string;
+  source: "replay" | "live";
+  runs: AttackRun[];
+};
+

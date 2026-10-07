@@ -89,6 +89,7 @@ export default function ChatPage() {
   const [conversationLabels, setConversationLabels] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  const [traceUrl, setTraceUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
 
@@ -200,6 +201,7 @@ export default function ChatPage() {
       });
       setDraft("");
       setStatus(`${response.status}: ${response.assistant_message}`);
+      setTraceUrl(response.trace_url ?? null);
       await loadConversations();
       setSelectedConversationId(response.conversation_id);
       await loadMessages(response.conversation_id);
@@ -273,9 +275,16 @@ export default function ChatPage() {
                 </p>
               )}
             </div>
-            <span className={`badge ${runStatusClass(selectedConversation?.latest_run_status ?? "idle")}`}>
-              {selectedConversation?.latest_run_status ?? "idle"}
-            </span>
+            <div className="row">
+              {traceUrl && (
+                <a className="muted" href={traceUrl} target="_blank" rel="noreferrer">
+                  Last run's trace ↗
+                </a>
+              )}
+              <span className={`badge ${runStatusClass(selectedConversation?.latest_run_status ?? "idle")}`}>
+                {selectedConversation?.latest_run_status ?? "idle"}
+              </span>
+            </div>
           </div>
 
           <div className="chat-transcript" ref={transcriptRef}>

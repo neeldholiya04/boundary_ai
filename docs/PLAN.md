@@ -631,6 +631,30 @@ Each phase ends with something that runs, is tested, and is committed. Sizes: S 
 - Playground page + `/api/guard/scan` + attack-mode endpoint + abuse controls (§8).
 - **Exit:** a run is traceable from UI → Langfuse; metrics are visible in local Grafana (docker compose profile).
 
+**Phase 10 outcome (done):**
+- **Tracing:** `boundary_agent.telemetry` traces one Langfuse trace per run, with the id derived from
+  the run id, so approval resumes join it. It holds agent → planner generations (tokens, cost),
+  `tool.<name>` spans, and `guard.<stage>` guardrail spans with a child per policy. Langfuse SDK v4;
+  off without keys. Traces hold only guarded/redacted text, and an end-to-end test checks it with an
+  in-memory exporter.
+- **Metrics:** `boundary_guard.metrics.PrometheusSink` in the library (checks, decisions, would-block,
+  latency, errors, with a `source` label separating app, playground and warm-up traffic), plus agent
+  metrics (LLM requests, tokens and cost; runs and run latency; async queue depth) on `GET /metrics`.
+- **Grafana:** `infra/observability/` holds the Prometheus config template, provisioning, and a
+  15-panel dashboard. It runs with `docker compose ... --profile observability up -d`, on localhost only.
+- **Playground:** `POST /api/guard/scan` (stateless, untraced), `GET /api/playground/scenarios`, and
+  `POST /api/playground/attack` (no defence vs filters + taint, against the fixture tool server). The
+  dashboard has a Playground page.
+- **Abuse controls:** 8k-character input cap, per-client rate limits (Redis or in-memory), one attack
+  at a time, and a global daily LLM budget (`LLM_DAILY_BUDGET_USD`) in the planner, counting real
+  provider calls only. Built-in scenarios replay the cassette through a per-planner completion
+  function, so the process-wide `litellm.acompletion` is never patched in the server.
+- **Fixed along the way:** a guard warm-up at startup (a cold first check timed out and fail-closed
+  blocked it). CORS now accepts both localhost and 127.0.0.1 for the dashboard origin. The
+  Prometheus scrape port comes from `AGENT_PORT`.
+- **Deferred to Phase 12:** admin auth at the proxy, restricting `/metrics`, proxy headers for real
+  client IPs, and Grafana Cloud remote-write.
+
 ### Phase 11 — Load test + results write-up (M)
 - Locust profiles, run, publish.
 - `docs/RESULTS.md` + README headline numbers (template below); architecture doc updated; demo script.

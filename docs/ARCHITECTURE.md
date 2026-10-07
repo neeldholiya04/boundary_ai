@@ -102,3 +102,10 @@ seam where Phase 12 can swap in a Redis-backed worker without touching the agent
 `create_all` makes new tables; `migrations.py` adds new columns to existing databases on startup
 (idempotent, checked against the live schema). On Postgres it also drops `NOT NULL` from
 `approval_requests.server_id`, which content reviews of user input and answers need.
+
+## Observability
+
+Every run is one Langfuse trace (planner generations, tool spans, a guardrail span per guard check
+with a child per policy), and the guard's decisions are Prometheus metrics via the library's
+`PrometheusSink`. Traces only hold guarded text. See [OBSERVABILITY.md](OBSERVABILITY.md), which
+also covers the playground and its abuse controls.

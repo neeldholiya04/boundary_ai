@@ -27,6 +27,7 @@ class ChatResponse(BaseModel):
     tool_call: dict[str, Any] | None = None
     executed_tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     approval_request_id: str | None = None
+    trace_url: str | None = None  # Langfuse trace for this run, when tracing is on
 
 
 class MCPServerCreate(BaseModel):

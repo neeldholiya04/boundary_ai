@@ -1,6 +1,8 @@
 # Local Postgres + Redis for development. Credentials and ports come from the root .env:
 #   docker compose --env-file .env -f infra/docker-compose.yml up -d
-# Both are bound to localhost only.
+# Opt-in Prometheus (:9090) + Grafana (:3001) with the committed guard dashboard:
+#   docker compose --env-file .env -f infra/docker-compose.yml --profile observability up -d
+# Everything is bound to localhost only.
 name: boundary
 
 services:
@@ -34,6 +36,48 @@ services:
     volumes:
       - redis_data:/data
 
+  # --- Observability (opt-in): --profile observability -----------------------------------------
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: boundary-prometheus
+    profiles: [observability]
+    # Fill the agent's port into the scrape config, then run Prometheus as usual.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        sed "s/AGENT_PORT/${AGENT_PORT:-8000}/" /etc/prometheus/prometheus.yml.tmpl > /prometheus/prometheus.yml
+        && exec /bin/prometheus --config.file=/prometheus/prometheus.yml --storage.tsdb.path=/prometheus
+        --storage.tsdb.retention.time=7d
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # the agent runs on the host (Linux needs this mapping)
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./observability/prometheus.yml.tmpl:/etc/prometheus/prometheus.yml.tmpl:ro
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: boundary-grafana
+    profiles: [observability]
+    depends_on:
+      - prometheus
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"  # local only (bound to 127.0.0.1); read-only viewers
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-boundary-local}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/boundary-guard.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"  # 3000 is the dashboard
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:

@@ -697,3 +697,42 @@ button {
     justify-content: space-between;
   }
 }
+
+/* ---- Playground ---------------------------------------------------------------------------- */
+.scan-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.scan-text.scroll {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.span-hit {
+  background: rgba(251, 191, 36, 0.28);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.tool-calls {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 6px;
+  word-break: break-word;
+}
+
+.tool-calls li.unexpected {
+  color: var(--danger);
+}
+
+.tool-calls li.unexpected .muted {
+  color: var(--danger);
+  opacity: 0.85;
+}

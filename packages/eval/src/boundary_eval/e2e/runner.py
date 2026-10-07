@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from boundary_agent.agent import AgentRuntime
@@ -12,9 +14,10 @@ from boundary_agent.config import Settings
 from boundary_agent.db import Base
 from boundary_agent.guarding import GuardAdapter
 from boundary_agent.llm import get_planner
-from boundary_agent.models import MCPServer, Policy
+from boundary_agent.models import GuardDecision, MCPServer, Policy
 from boundary_agent.policy import PolicyEngine
 from boundary_agent.realtime import EventBroker
+from boundary_agent.telemetry import DISABLED, Telemetry
 from boundary_eval.e2e.checks import Trajectory, attack_succeeded, task_succeeded
 from boundary_eval.e2e.fixture_mcp import FixtureMCP
 from boundary_eval.e2e.scenarios import Kind, Scenario
@@ -65,6 +68,9 @@ class ScenarioResult:
     task_success: bool
     task_failures: list[str]
     final_message: str
+    run_id: str = ""
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)  # [{tool, arguments}] in call order
+    guard_flags: list[dict[str, str]] = field(default_factory=list)  # non-allow decisions (shadow included)
 
 
 @dataclass(slots=True)
@@ -96,6 +102,8 @@ async def run_scenario(
     planner: Any | None = None,
     settings_overrides: dict[str, Any] | None = None,
     enforce_timeouts: bool = False,
+    planner_factory: Callable[[Settings], Any] | None = None,
+    telemetry: Telemetry = DISABLED,
 ) -> ScenarioResult:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
@@ -125,7 +133,7 @@ async def run_scenario(
             broker = EventBroker(None)
             audit = AuditLogger(broker)
             guard = _build_guard(policy_path, config, enforce_timeouts=enforce_timeouts)
-            adapter = GuardAdapter(guard, audit) if guard else None
+            adapter = GuardAdapter(guard, audit, telemetry=telemetry) if guard else None
 
             base_settings = {
                 "llm_provider": "litellm",
@@ -135,8 +143,15 @@ async def run_scenario(
                 **(settings_overrides or {}),
             }
             settings = Settings(**base_settings)
-            run_planner = planner if planner is not None else get_planner(settings)
-            runtime = AgentRuntime(settings, run_planner, mcp, PolicyEngine(), audit, guard=adapter)
+            if planner is not None:
+                run_planner = planner
+            elif planner_factory is not None:
+                run_planner = planner_factory(settings)  # per config: spotlight etc. come from `settings`
+            else:
+                run_planner = get_planner(settings)
+            runtime = AgentRuntime(
+                settings, run_planner, mcp, PolicyEngine(), audit, guard=adapter, telemetry=telemetry
+            )
 
             response = await runtime.handle_chat(
                 session, scenario.user_task, None, response_schema=scenario.response_schema
@@ -146,6 +161,24 @@ async def run_scenario(
 
             traj = Trajectory(mcp=mcp, final_message=response.assistant_message, status=response.status)
             cost = await _conversation_cost(session, response.conversation_id)
+            flagged = (
+                await session.scalars(
+                    select(GuardDecision).where(
+                        GuardDecision.run_id == response.run_id, GuardDecision.would_action != "allow"
+                    )
+                )
+            ).all()
+            guard_flags = [
+                {
+                    "stage": d.stage,
+                    "policy": d.policy_id,
+                    "mode": d.mode,
+                    "action": d.action,
+                    "would_action": d.would_action,
+                    "tool": d.tool_name or "",
+                }
+                for d in flagged
+            ]
     finally:
         await engine.dispose()
 
@@ -166,6 +199,9 @@ async def run_scenario(
         task_success=done,
         task_failures=failures,
         final_message=traj.final_message,
+        run_id=response.run_id,
+        tool_calls=[{"tool": c.tool_name, "arguments": c.arguments} for c in mcp.calls],
+        guard_flags=guard_flags,
     )
 
 

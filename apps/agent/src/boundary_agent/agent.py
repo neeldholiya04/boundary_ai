@@ -16,6 +16,7 @@ from boundary_agent.mcp_manager import MCPManager
 from boundary_agent.models import ApprovalRequest, Conversation, MCPServer, Message, Policy, Run
 from boundary_agent.policy import PolicyEngine
 from boundary_agent.schemas import ChatResponse
+from boundary_agent.telemetry import DISABLED, RunHandle, Telemetry
 from boundary_agent.types import ExecutedToolStep, PlannerMessage, ToolCall, ToolExecutionIntent
 from boundary_guard import Action, Stage
 
@@ -29,6 +30,7 @@ class AgentRuntime:
         policy_engine: PolicyEngine,
         audit_logger: AuditLogger,
         guard: GuardAdapter | None = None,
+        telemetry: Telemetry = DISABLED,
     ) -> None:
         self.settings = settings
         self.planner = planner
@@ -36,6 +38,7 @@ class AgentRuntime:
         self.policy_engine = policy_engine
         self.audit_logger = audit_logger
         self.guard = guard
+        self.telemetry = telemetry
 
     async def handle_chat(
         self,
@@ -70,10 +73,25 @@ class AgentRuntime:
         session.add(run)
         await session.flush()
 
+        with self.telemetry.run(run.id, name="chat", conversation_id=conversation.id) as trace:
+            response = await self._start_run(session, conversation, run, user_message, created, trace)
+            trace.finish(response.status, response.assistant_message)
+            return response
+
+    async def _start_run(
+        self,
+        session: AsyncSession,
+        conversation: Conversation,
+        run: Run,
+        user_message: str,
+        created: bool,
+        trace: RunHandle,
+    ) -> ChatResponse:
         # Guard the request before it is stored anywhere: the title, the message history, the
-        # audit log and the planner all get the guard's (possibly redacted) text.
+        # audit log, the planner and the trace all get the guard's (possibly redacted) text.
         outcome = await self._guard(session, Stage.USER_INPUT, user_message, conversation, run)
         user_text = outcome.text if outcome else user_message
+        trace.set_input(user_text)
         if created:
             conversation.title = (
                 user_text.strip().splitlines()[0][:60] if user_text.strip() else "New conversation"
@@ -135,6 +153,22 @@ class AgentRuntime:
         if run is None or conversation is None:
             raise ValueError("Approval request is missing its run context.")
 
+        # Same trace id as the run that paused, so the whole story is one trace.
+        with self.telemetry.run(run.id, name="approval", conversation_id=conversation.id) as trace:
+            trace.set_input({"decision": decision, "kind": approval.kind, "tool_name": approval.tool_name})
+            response = await self._decide(session, approval, run, conversation, decision, comment)
+            trace.finish(response.status, response.assistant_message)
+            return response
+
+    async def _decide(
+        self,
+        session: AsyncSession,
+        approval: ApprovalRequest,
+        run: Run,
+        conversation: Conversation,
+        decision: str,
+        comment: str | None,
+    ) -> ChatResponse:
         if self._as_utc(approval.expires_at) < datetime.now(UTC):
             await self._expire_approval(session, approval, run, conversation)
             await session.commit()
@@ -493,6 +527,29 @@ class AgentRuntime:
         return expired
 
     async def _execute_allowed_tool_step(
+        self,
+        session: AsyncSession,
+        conversation: Conversation,
+        run: Run,
+        tool_call: ToolCall,
+        executed_steps: list[ExecutedToolStep],
+        user_message: str,
+    ) -> ChatResponse | ExecutedToolStep:
+        # The span holds the call and the tool-output guard check; its output is what the planner
+        # was actually given (redacted or withheld), never the raw tool result.
+        with self.telemetry.observe(
+            f"tool.{tool_call.tool_name}", as_type="tool", input=tool_call.arguments
+        ) as span:
+            step = await self._call_and_guard_tool(
+                session, conversation, run, tool_call, executed_steps, user_message
+            )
+            if isinstance(step, ExecutedToolStep):
+                span.update(output=step.result, metadata={"is_error": step.is_error})
+            else:
+                span.update(output=step.assistant_message, metadata={"status": step.status}, level="WARNING")
+            return step
+
+    async def _call_and_guard_tool(
         self,
         session: AsyncSession,
         conversation: Conversation,

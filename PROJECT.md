@@ -118,7 +118,7 @@ boundary_ai/
 │   └── detector/      boundary_detector — the injection detector we train ourselves
 ├── policies/          the policy YAML, regex rulesets, schemas, topic lists
 ├── infra/             docker compose files and deployment config (Phase 12)
-├── docs/              IDEA (the spec), PLAN (the build plan), THREAT_MODEL, EVAL, ARCHITECTURE, AGENT, CI, DEMO
+├── docs/              IDEA (the spec), PLAN (the build plan), THREAT_MODEL, EVAL, ARCHITECTURE, AGENT, OBSERVABILITY, CI, DEMO
 └── .github/workflows/ CI: ci.yml (gates on every PR) + nightly-live.yml
 ```
 
@@ -258,8 +258,18 @@ Each phase below says **what** it delivered, **why** it mattered, and **how** we
   tool-output injection** — 82.8% catch at 9.5% false positives on the test split, vs ~53–55% catch
   at 20–28% false positives — and is the fastest. See [`packages/detector/MODELCARD.md`](packages/detector/MODELCARD.md).
 
-### Phases 9–12 — still to come (see [`PLAN.md`](docs/PLAN.md))
-- **10:** tracing (Langfuse), metrics (Prometheus/Grafana), and a public playground.
+### Phase 10 — Observability and the playground
+- **What:** every agent run is traced in **Langfuse** (the planner's calls, each tool call, each guard
+  check and every policy's verdict), the agent exposes **Prometheus** metrics with a ready-made
+  **Grafana** dashboard, and the dashboard gets a **Playground** page.
+- **Why:** you can't operate a guard you can't see. Traces answer "why did this run get blocked?";
+  metrics answer "how often, how slow, how much?"; the playground lets anyone try the guard.
+- **How:** traces only ever contain what the guard let through (redacted text), never raw input, and
+  a test proves it. Guard metrics live in the guard library, so any app using it gets them. The
+  playground's attack mode replays recorded model answers (free) for built-in scenarios, and live
+  runs go through rate limits and a daily spend cap. Details: [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).
+
+### Phases 11–12 — still to come (see [`PLAN.md`](docs/PLAN.md))
 - **11:** load testing and the final results write-up.
 - **12:** deployment, a public URL, and production monitoring (deliberately left for last).
 

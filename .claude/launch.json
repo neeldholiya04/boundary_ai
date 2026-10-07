@@ -3,28 +3,44 @@
   "configurations": [
     {
       "name": "agent",
-      "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "boundary", "serve", "--port", "8000"],
-      "port": 8000
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "FRONTEND_ORIGIN=http://localhost:3010",
+        "uv",
+        "run",
+        "boundary",
+        "serve",
+        "--port",
+        "8010"
+      ],
+      "port": 8010
     },
     {
       "name": "dashboard",
       "runtimeExecutable": "/usr/bin/env",
       "runtimeArgs": [
-        "NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000",
+        "NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8010",
         "NEXT_TELEMETRY_DISABLED=1",
+        "PORT=3010",
         "npm",
         "--prefix",
         "apps/dashboard",
         "run",
         "dev"
       ],
-      "port": 3000
+      "port": 3010
     },
     {
       "name": "agent-demo",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "boundary", "serve", "--demo", "--port", "8791"],
+      "runtimeArgs": [
+        "run",
+        "boundary",
+        "serve",
+        "--demo",
+        "--port",
+        "8791"
+      ],
       "port": 8791
     }
   ]
