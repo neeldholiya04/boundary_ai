@@ -1,15 +1,21 @@
-# Production stack (Phase 12). Settings come from the root .env:
-#   docker compose --env-file .env -f infra/docker-compose.deploy.yml up -d --build
+# Production stack (one server; see docs/DEPLOY.md). Settings come from the root .env:
+#   RELEASE=$(git rev-parse --short HEAD) docker compose --env-file .env -f infra/docker-compose.deploy.yml up -d --build
+# Images are tagged with RELEASE, so a rollback is `RELEASE=<previous> ... up -d` (no rebuild).
+# Opt-in Prometheus + Grafana: add `--profile observability` (Grafana on the server's 127.0.0.1:3001,
+# reached through an SSH tunnel; never exposed publicly).
 name: boundary-deploy
+
+x-restart: &restart
+  restart: unless-stopped
 
 services:
   postgres:
+    <<: *restart
     image: postgres:16-alpine
-    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-boundary}
       POSTGRES_USER: ${POSTGRES_USER:-boundary}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boundary}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-boundary} -d ${POSTGRES_DB:-boundary}"]
       interval: 10s
@@ -19,8 +25,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   redis:
+    <<: *restart
     image: redis:7-alpine
-    restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -30,20 +36,25 @@ services:
     volumes:
       - redis_data:/data
 
-  api:
+  agent:
+    <<: *restart
+    image: boundary-agent:${RELEASE:-dev}
     build:
       context: ..
       dockerfile: apps/agent/Dockerfile
-    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-boundary}:${POSTGRES_PASSWORD:-boundary}@postgres:5432/${POSTGRES_DB:-boundary}
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-boundary}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-boundary}
       REDIS_URL: redis://redis:6379/0
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN}
+      FRONTEND_ORIGIN: https://${ADMIN_HOST:?set ADMIN_HOST in .env}
+      # Only Caddy can reach the agent (internal network, port not published), so trusting the
+      # forwarded client IP it sets is safe; the rate limits then apply per real visitor.
+      FORWARDED_ALLOW_IPS: "*"
       LLM_PROVIDER: litellm
       ALLOW_DEMO_MOCK_PLANNER: "false"
       LLM_MODEL: ${LLM_MODEL:-openai/gpt-4.1-mini}
@@ -55,38 +66,47 @@ services:
       GUARD_POLICY_PATH: ${GUARD_POLICY_PATH-policies/guard.yaml}
       GUARD_TOOL_OUTPUT_ON_BLOCK: ${GUARD_TOOL_OUTPUT_ON_BLOCK:-continue}
       HF_TOKEN: ${HF_TOKEN:-}
-      HF_HUB_DISABLE_TELEMETRY: "1"
-      TOKENIZERS_PARALLELISM: "false"
       EXA_MCP_ENABLED: ${EXA_MCP_ENABLED:-true}
       EXA_API_KEY: ${EXA_API_KEY:-}
-      BOUNDARY_SANDBOX_ROOT: /data/mcp-sandbox
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      # Public demo: cap real LLM spend per day (built-in playground scenarios replay for free).
+      LLM_DAILY_BUDGET_USD: ${LLM_DAILY_BUDGET_USD:-2}
+      PLAYGROUND_ENABLED: ${PLAYGROUND_ENABLED:-true}
+      PLAYGROUND_LIVE_RUNS: ${PLAYGROUND_LIVE_RUNS:-true}
+      PLAYGROUND_MAX_INPUT_CHARS: ${PLAYGROUND_MAX_INPUT_CHARS:-8000}
+      PLAYGROUND_SCANS_PER_MINUTE: ${PLAYGROUND_SCANS_PER_MINUTE:-30}
+      PLAYGROUND_ATTACKS_PER_HOUR: ${PLAYGROUND_ATTACKS_PER_HOUR:-10}
     expose:
       - "8000"
     volumes:
+      - hf_cache:/data/hf # model downloads (~2 GB), kept across releases
       - mcp_sandbox:/data/mcp-sandbox
-      # Pinned guard models (~2 GB), kept across restarts so they download once.
-      - hf_cache:/root/.cache/huggingface
 
-  web:
+  dashboard:
+    <<: *restart
+    image: boundary-dashboard:${RELEASE:-dev}
     build:
       context: ..
       dockerfile: apps/dashboard/Dockerfile
-      args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
-    restart: unless-stopped
     depends_on:
-      - api
+      - agent
     expose:
       - "3000"
 
   caddy:
+    <<: *restart
     image: caddy:2-alpine
-    restart: unless-stopped
     depends_on:
-      - web
-      - api
+      - agent
+      - dashboard
     environment:
-      APP_DOMAIN: ${APP_DOMAIN}
+      PUBLIC_HOST: ${PUBLIC_HOST:?set PUBLIC_HOST in .env}
+      ADMIN_HOST: ${ADMIN_HOST:?set ADMIN_HOST in .env}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?set ADMIN_PASSWORD_HASH in .env (caddy hash-password)}
+      ACME_EMAIL_DIRECTIVE: ${ACME_EMAIL:+email ${ACME_EMAIL}} # the Caddyfile's global email line, if any
     ports:
       - "80:80"
       - "443:443"
@@ -95,10 +115,44 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  # --- Observability (opt-in): --profile observability -------------------------------------------
+  prometheus:
+    <<: *restart
+    image: prom/prometheus:v3.1.0
+    profiles: [observability]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./observability/prometheus.deploy.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  grafana:
+    <<: *restart
+    image: grafana/grafana:11.4.0
+    profiles: [observability]
+    depends_on:
+      - prometheus
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true" # bound to the server's localhost only (SSH tunnel)
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/boundary-guard.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+
 volumes:
   postgres_data:
   redis_data:
-  mcp_sandbox:
   hf_cache:
+  mcp_sandbox:
   caddy_data:
   caddy_config:
+  prometheus_data:
+  grafana_data:

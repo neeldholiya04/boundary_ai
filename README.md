@@ -92,8 +92,8 @@ packages/      libraries the apps use
   eval/          boundary_eval: datasets, scenarios, baselines, CI gates, detector + end-to-end harnesses
   detector/      boundary_detector: our fine-tuned tool-output injection detector + Colab training
 policies/      the guard's versioned policy YAML, rulesets, schemas (CHANGELOG.md)
-infra/         docker compose (local Postgres/Redis; Phase 12 deployment stack), Caddyfile
-docs/          IDEA and PLAN, threat model, eval, architecture, agent internals, observability, CI, demo
+infra/         docker compose (local dev; production stack), Caddyfile, Prometheus/Grafana, load test
+docs/          IDEA and PLAN, threat model, eval, results, architecture, agent internals, observability, deploy, CI, demo
 ```
 
 ## Development
@@ -126,4 +126,4 @@ uv run boundary-eval build-extended            # rebuild extended set from pinne
 - [x] Phase 9: runtime mode overrides (persisted + audited), shadow-vs-enforce stats, Guardrails dashboard page
 - [x] Phase 10: Langfuse tracing (one trace per run, redacted only), Prometheus metrics + Grafana dashboard, public Playground (scan + attack mode) with rate limits and a daily LLM budget ([observability](docs/OBSERVABILITY.md))
 - [x] Phase 11: load test (guard off / blocking / as shipped, with a per-policy latency breakdown), `enforce` e2e config, generated [RESULTS.md](docs/RESULTS.md) + README results, demo script ([DEMO.md](docs/DEMO.md))
-- [ ] Phase 12: deployment, public URL, production monitoring ([PLAN.md](docs/PLAN.md))
+- [ ] Phase 12: deployment to AWS (one t4g.large, Caddy HTTPS, public playground + password-protected admin): repo side done and rehearsed locally, step-by-step guide in [DEPLOY.md](docs/DEPLOY.md); going live next

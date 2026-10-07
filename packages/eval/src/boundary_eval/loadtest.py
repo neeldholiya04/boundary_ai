@@ -38,8 +38,7 @@ import yaml
 PROFILES = ("filters_off", "async", "blocking")
 LOCUSTFILE = Path("infra/loadtest/locustfile.py")
 PAGE = Path("infra/loadtest/page.md")
-SANDBOX_PAGE = Path("apps/sandbox-mcp/sandbox/loadtest/page.md")
-BLOCKING_POLICY = Path("policies/.loadtest-blocking.yaml")  # gitignored; written and removed per run
+SANDBOX_PAGE = Path("loadtest/page.md")  # inside the sandbox root (BOUNDARY_SANDBOX_ROOT in containers)
 
 
 @dataclass(slots=True)
@@ -128,11 +127,21 @@ async def _policy_latency(url: str, since: float) -> list[dict[str, Any]]:
     ]
 
 
-def write_blocking_policy(source: Path, target: Path = BLOCKING_POLICY) -> Path:
-    """A copy of the policy file with every async policy made blocking (kept next to the original so
-    its relative ruleset/schema/topic paths still resolve)."""
+def sandbox_page_path() -> Path:
+    root = os.environ.get("BOUNDARY_SANDBOX_ROOT") or "apps/sandbox-mcp/sandbox"
+    return Path(root) / SANDBOX_PAGE
+
+
+def write_blocking_policy(source: Path, target: Path) -> Path:
+    """A copy of the policy file with every async policy made blocking. Detector file parameters
+    (rulesets, schemas, topic lists) are made absolute, so the copy can live anywhere writable."""
     raw = yaml.safe_load(source.read_text(encoding="utf-8"))
+    base = source.resolve().parent
     for policy in raw.get("policies", []):
+        detector = policy.get("detector") or {}
+        for key, value in list(detector.items()):
+            if isinstance(value, str) and (base / value).exists():
+                detector[key] = str(base / value)
         if policy.get("execution") == "async":
             policy["execution"] = "blocking"
     if raw.get("defaults", {}).get("execution") == "async":
@@ -242,7 +251,7 @@ def run_profile(
     elif profile == "async":
         policy_arg = str(policy)
     elif profile == "blocking":
-        policy_arg = str(write_blocking_policy(policy))
+        policy_arg = str(write_blocking_policy(policy, workdir / "blocking-policy.yaml"))
     else:
         raise ValueError(f"unknown profile: {profile}")
 
@@ -314,8 +323,6 @@ def run_profile(
                     guard_errors=int(after - before),
                 )
             )
-    if profile == "blocking":
-        BLOCKING_POLICY.unlink(missing_ok=True)
     if policy_arg and database_url.startswith("postgresql"):
         import asyncio
 
@@ -337,8 +344,10 @@ def run(
 ) -> dict[str, Any]:
     import asyncio
 
-    SANDBOX_PAGE.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(PAGE, SANDBOX_PAGE)
+    page = sandbox_page_path()
+    page.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(PAGE, page)
+    workdir.mkdir(parents=True, exist_ok=True)
     lt_url = loadtest_database_url(database_url)
     if lt_url.startswith("postgresql"):
         asyncio.run(_ensure_postgres_database(lt_url))

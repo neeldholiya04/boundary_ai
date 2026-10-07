@@ -1,25 +1,45 @@
-.git
-.gitignore
-.agents
-.codex
+# Build context for apps/agent/Dockerfile and apps/dashboard/Dockerfile (both use the repo root).
+# Secrets never enter an image: they come from the environment at runtime.
 .env
 .env.*
 **/.env
 **/.env.*
-node_modules
-apps/dashboard/node_modules
-apps/dashboard/build-output
-apps/dashboard/.next
-apps/agent/.venv
-apps/sandbox-mcp/.venv
-__pycache__
-*.pyc
+!.env.example
+
+# VCS, local tooling, caches
+.git
+.github
+.claude
+.agents
+.codex
+.cache
+**/__pycache__
+**/*.pyc
 .pytest_cache
 .mypy_cache
 .ruff_cache
 coverage
 htmlcov
-*.db
-*.sqlite3
 tmp
 logs
+
+# Python environments (the image builds its own from uv.lock)
+.venv
+**/.venv
+
+# Dashboard build output and dependencies (rebuilt inside the image)
+**/node_modules
+apps/dashboard/.next
+apps/dashboard/build-output
+apps/dashboard/tsconfig.tsbuildinfo
+
+# Large or local-only data
+packages/detector/model
+packages/detector/data/*.jsonl
+packages/detector/colab
+packages/eval/results
+apps/sandbox-mcp/sandbox/*
+*.db
+*.sqlite3
+*.pdf
+*.zip

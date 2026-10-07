@@ -347,6 +347,7 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "asyncpg" },
     { name = "boundary-guard", extra = ["metrics"] },
+    { name = "boundary-sandbox-mcp" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "langfuse" },
@@ -365,12 +366,21 @@ dependencies = [
 dev = [
     { name = "pytest" },
 ]
+ml = [
+    { name = "boundary-guard", extra = ["ml"] },
+]
+playground = [
+    { name = "boundary-eval" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.21.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
+    { name = "boundary-eval", marker = "extra == 'playground'", editable = "packages/eval" },
     { name = "boundary-guard", extras = ["metrics"], editable = "packages/guard" },
+    { name = "boundary-guard", extras = ["ml"], marker = "extra == 'ml'", editable = "packages/guard" },
+    { name = "boundary-sandbox-mcp", editable = "apps/sandbox-mcp" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "langfuse", specifier = ">=3" },
@@ -385,7 +395,7 @@ requires-dist = [
     { name = "sse-starlette", specifier = ">=3.0.0" },
     { name = "uvicorn", specifier = ">=0.31.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["ml", "playground", "dev"]
 
 [[package]]
 name = "boundary-ai"

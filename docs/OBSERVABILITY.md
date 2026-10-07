@@ -99,14 +99,17 @@ A **Playground** page in the dashboard, backed by three endpoints:
 - Playground runs are traced (tagged `playground`) but kept out of the app's metrics, so demo
   traffic and replayed calls never skew the real panels.
 
-## Left for Phase 12 (deployment)
+## In production (Phase 12)
 
-- **The admin dashboard is not public.** Policies, approvals and logs go behind basic auth or an
-  allowlist at the proxy (Caddy), on a separate host from the public playground.
-- **`/metrics` is restricted at the proxy.** It's open on the local machine only.
-- **Real client IPs:** behind Caddy, run uvicorn with `--proxy-headers --forwarded-allow-ips`, so
-  rate limits apply per real client, not per proxy.
-- **Remote metrics:** Grafana Cloud remote-write instead of the local Prometheus.
+The deployment ([DEPLOY.md](DEPLOY.md)) closes the items Phase 10 left open:
+
+- **The admin dashboard is not public.** Caddy serves it on its own host, behind basic auth. The
+  public host serves only the Playground page and its two APIs.
+- **`/metrics` is never served through the proxy.** Prometheus scrapes the agent on the internal
+  network, and Grafana is reachable only through an SSH tunnel.
+- **Real client IPs:** the agent trusts the forwarded address from Caddy (the only thing that can
+  reach it), so the rate limits apply per real visitor.
+- Grafana Cloud remote-write remains an option for alerting from outside the server.
 
 ## Known issue on small machines
 
