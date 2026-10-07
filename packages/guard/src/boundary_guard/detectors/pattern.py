@@ -24,11 +24,29 @@ MAX_PATTERN_CHARS = 500
 # gigabytes. Cap each count and their product across the pattern (an upper bound on nesting).
 MAX_REPEAT = 1000
 MAX_REPEAT_PRODUCT = 100_000
-_COUNT = re.compile(r"(?<!\\)\{(\d+)(?:,(\d*))?\}")
+_QUANTIFIER = re.compile(r"\{(\d*)(?:,(\d*))?\}")
+
+
+def _repeat_counts(pattern: str) -> list[int]:
+    """The largest count of every `{n}`, `{n,}`, `{,m}` and `{n,m}` quantifier, skipping escaped
+    characters (so `\\{9}` is a quantifier on a literal backslash and `\\{` a literal brace)."""
+    counts, i = [], 0
+    while i < len(pattern):
+        if pattern[i] == "\\":
+            i += 2  # an escape and the character it escapes
+            continue
+        if pattern[i] == "{":
+            m = _QUANTIFIER.match(pattern, i)
+            if m and (m.group(1) or m.group(2)):
+                counts.append(max(int(m.group(1) or 0), int(m.group(2) or 0)))
+                i = m.end()
+                continue
+        i += 1
+    return counts
 
 
 def _check_repeats(pattern: str) -> None:
-    counts = [max(int(lo), int(hi) if hi else int(lo)) for lo, hi in _COUNT.findall(pattern)]
+    counts = _repeat_counts(pattern)
     if any(c > MAX_REPEAT for c in counts):
         raise ValueError(f"pattern: repetition counts are limited to {MAX_REPEAT} ({pattern!r})")
     if math.prod(c for c in counts if c > 1) > MAX_REPEAT_PRODUCT:

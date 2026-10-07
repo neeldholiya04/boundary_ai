@@ -198,10 +198,14 @@ class Guard:
         # Snapshot the policies and their modes now: a rule removed or switched while this check (or its
         # async tail) runs must not change, or crash, a check that already started.
         modes = {b.config.id: self.mode_of(b.config.id) for b in self._by_stage[stage]}
+        # Callers that must not run (or reveal) runtime policies, e.g. a public demo, check with the
+        # policy file's policies only.
+        file_only = bool(ctx.metadata.get("file_policies_only"))
         active = [
             b
             for b in self._by_stage[stage]
             if modes[b.config.id] is not Mode.OFF
+            and (not file_only or b.config.id in self._file_ids)
             and (b.config.tools is None or ctx.tool_name in b.config.tools)
             and b.detector.applies(ctx)
         ]
@@ -224,6 +228,7 @@ class Guard:
                 decision.rewritten = True
             decisions.append(decision)
 
+        checked = current  # what the detectors below see (and what their spans index into)
         detector_decisions = [
             d
             for d, _ in await asyncio.gather(
@@ -250,6 +255,7 @@ class Guard:
             config_hash=self._config_hash,
             latency_ms=(time.perf_counter() - started) * 1000,
             pending_async=[b.config.id for b, _ in deferred],
+            checked_text=checked,
         )
 
         await self._emit(DecisionEvent(stage, ctx, decisions, self._config_hash, is_async=False))

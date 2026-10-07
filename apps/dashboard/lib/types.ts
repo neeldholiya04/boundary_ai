@@ -140,6 +140,10 @@ export type GuardMode = "off" | "shadow" | "enforce";
 export type RuleCheck = {
   type: RuleCheckType;
   keywords?: string[];
+  case_sensitive?: boolean;
+  whole_word?: boolean;
+  allow_examples?: string[];
+  margin?: number;
   patterns?: string[];
   flags?: string[];
   examples?: string[];
@@ -158,6 +162,8 @@ export type RuleSpec = {
   action: RuleAction;
   mode: GuardMode;
   execution?: "blocking" | "async";
+  on_error?: "fail_open" | "fail_closed" | null;
+  timeout_ms?: number | null;
   taints_run?: boolean;
   tests: { should_fire: string[]; should_pass: string[] };
 };

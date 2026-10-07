@@ -351,3 +351,13 @@ def test_config_hash_does_not_depend_on_the_order_rules_were_added():
     a.add_policy(one), a.add_policy(two)
     b.add_policy(runtime("custom_b")), b.add_policy(runtime("custom_a"))
     assert a.config_hash == b.config_hash
+
+
+@pytest.mark.parametrize("pattern", [r"(?:a{,60000}){,60000}", r"a\\{99999}", r"(?:a{0,2000})"])
+def test_pattern_counts_every_quantifier_form(pattern):
+    with pytest.raises(ValueError, match="repetition"):
+        PatternDetector([pattern])
+
+
+def test_escaped_braces_are_literals_not_quantifiers():
+    PatternDetector([r"a\{99999}", r"[{]", r"\d{4}-\d{2}"])  # no error

@@ -129,6 +129,9 @@ class GuardResult:
     latency_ms: float = 0.0
     # Async policies scheduled for this check; their decisions go to sinks, not here.
     pending_async: list[str] = field(default_factory=list)
+    # The text the (non-transform) detectors ran on: the input after enforced transforms such as
+    # secrets' redact_first or schema repair. Their spans are offsets into this, not into the input.
+    checked_text: str | None = None
 
     @property
     def blocked(self) -> bool:

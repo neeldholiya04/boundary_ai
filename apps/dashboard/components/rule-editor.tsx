@@ -137,8 +137,20 @@ function draftFromRule(rule: GuardRule): Draft {
   };
 }
 
-function specFromDraft(draft: Draft, mode: RuleSpec["mode"]): RuleSpec {
-  const check: RuleSpec["check"] = { type: draft.checkType };
+/**
+ * The spec to send. `base` is the rule being edited: fields the form doesn't show (execution, judge
+ * threshold, pattern flags, keyword options, timeouts) are carried over rather than reset, since PUT
+ * replaces the whole spec. Check options only carry over while the check type is unchanged.
+ */
+function specFromDraft(draft: Draft, mode: RuleSpec["mode"], base?: RuleSpec): RuleSpec {
+  const sameType = base?.check.type === draft.checkType;
+  const check: RuleSpec["check"] = sameType ? { ...base!.check } : { type: draft.checkType };
+  delete check.keywords;
+  delete check.patterns;
+  delete check.examples;
+  delete check.policy;
+  delete check.model;
+  delete check.label;
   if (draft.checkType === "keywords") check.keywords = toLines(draft.lines);
   if (draft.checkType === "pattern") check.patterns = toLines(draft.lines);
   if (draft.checkType === "topic") check.examples = toLines(draft.lines);
@@ -149,6 +161,7 @@ function specFromDraft(draft: Draft, mode: RuleSpec["mode"]): RuleSpec {
   if (draft.label.trim()) check.label = draft.label.trim().toUpperCase();
   const toolStagesOnly = draft.stages.every((s) => s === "tool_args" || s === "tool_output");
   return {
+    ...base,
     name: draft.name.trim(),
     description: draft.description.trim() || null,
     stages: draft.stages,
@@ -156,7 +169,9 @@ function specFromDraft(draft: Draft, mode: RuleSpec["mode"]): RuleSpec {
     check,
     action: draft.action,
     mode,
-    taints_run: draft.taintsRun,
+    // Only meaningful (and only accepted) for rules that check tool output; the checkbox is hidden
+    // otherwise, so a value left over from before the stage was unticked must not be sent.
+    taints_run: draft.stages.includes("tool_output") && draft.taintsRun,
     tests: { should_fire: toLines(draft.shouldFire), should_pass: toLines(draft.shouldPass) }
   };
 }
@@ -220,7 +235,7 @@ export function RuleEditor({
     setBusy("test");
     setError(null);
     try {
-      const spec = specFromDraft(draft, "enforce");
+      const spec = specFromDraft(draft, "enforce", rule?.spec);
       setReport(
         await apiSend<RuleDryRun>("/api/guard/rules/test", {
           method: "POST",
@@ -240,7 +255,7 @@ export function RuleEditor({
     setError(null);
     try {
       // New rules start in shadow; an edit keeps the rule's current mode.
-      const spec = specFromDraft(draft, rule?.spec.mode ?? "shadow");
+      const spec = specFromDraft(draft, rule?.spec.mode ?? "shadow", rule?.spec);
       const saved = await apiSend<GuardRule>(rule ? `/api/guard/rules/${rule.id}` : "/api/guard/rules", {
         method: rule ? "PUT" : "POST",
         body: JSON.stringify(spec)
