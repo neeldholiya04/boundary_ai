@@ -178,4 +178,55 @@ def test_gates_yaml_has_e2e_section():
 
     gates = load_gates(Path(__file__).resolve().parents[3] / "packages" / "eval" / "gates.yaml")
     assert gates.e2e.config == "filters_taint"
-    assert gates.e2e.max_asr is not None
+    assert gates.e2e.baseline == "packages/eval/baselines/e2e.json"
+    assert gates.e2e.max_new_attack_successes == 0 and gates.e2e.max_new_benign_failures == 0
+
+
+def _e2e_runs(**outcomes):
+    """outcomes: scenario_id -> "stopped" / "hijacked" (attacks) or "done" / "failed" (benign)."""
+    results = []
+    for sid, outcome in outcomes.items():
+        attack = outcome in ("stopped", "hijacked")
+        results.append(
+            {
+                "scenario_id": sid,
+                "config": "filters_taint",
+                "split": "test",
+                "kind": "attack" if attack else "benign",
+                "attack_success": outcome == "hijacked",
+                "task_success": outcome == "done",
+            }
+        )
+    stats = {"attack_success_rate": 0.0, "benign_task_success": 1.0}
+    return {"configs": {"filters_taint": {"test": stats}}, "results": results}
+
+
+def test_e2e_regression_gate_names_newly_hijacked_and_failing_scenarios():
+    from boundary_eval.compare import E2EGate, check_e2e_gate
+
+    baseline = _e2e_runs(a1="stopped", a2="hijacked", b1="done", b2="failed")
+    current = _e2e_runs(a1="hijacked", a2="hijacked", b1="failed", b2="failed")
+    failures = check_e2e_gate(current, E2EGate(), baseline)
+    assert any("now succeed: a1" in f for f in failures)
+    assert any("now fail: b1" in f for f in failures)
+
+
+def test_e2e_regression_gate_passes_on_equal_or_better_and_reports_changes():
+    from boundary_eval.compare import E2EGate, check_e2e_gate, compare_e2e
+
+    baseline = _e2e_runs(a1="stopped", a2="hijacked", b1="failed")
+    current = _e2e_runs(a1="stopped", a2="stopped", b1="done", a3="hijacked")
+    assert check_e2e_gate(current, E2EGate(), baseline) == []
+    diff = compare_e2e(baseline, current, E2EGate())
+    assert diff.improved == ["a2", "b1"]
+    assert diff.not_in_baseline == ["a3"]  # new scenarios are reported, not failed
+
+
+def test_e2e_regression_gate_counts_swaps_as_regressions():
+    from boundary_eval.compare import E2EGate, check_e2e_gate
+
+    # Same attack-success *rate*, different scenario: still a regression worth a reviewer's look.
+    baseline = _e2e_runs(a1="stopped", a2="hijacked")
+    current = _e2e_runs(a1="hijacked", a2="stopped")
+    assert check_e2e_gate(current, E2EGate(), baseline) != []
+    assert check_e2e_gate(current, E2EGate(max_new_attack_successes=1), baseline) == []

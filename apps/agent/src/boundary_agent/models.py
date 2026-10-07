@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, false, func
@@ -13,6 +13,17 @@ def _uuid() -> str:
     return str(uuid4())
 
 
+def _now() -> datetime:
+    """Row timestamps are set here, at creation, with microsecond precision. The database's now() is
+    the transaction start in Postgres (every row a request writes would tie) and whole seconds in
+    SQLite, which made "the most recent N messages" an arbitrary pick among ties."""
+    return datetime.now(UTC)
+
+
+def _created_at() -> Mapped[datetime]:
+    return mapped_column(DateTime(timezone=True), default=_now, server_default=func.now())
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
 
@@ -22,9 +33,9 @@ class Conversation(Base):
     cost_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
     spent_tokens: Mapped[int] = mapped_column(Integer, default=0)
     spent_cost: Mapped[float] = mapped_column(Float, default=0.0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), default=_now, server_default=func.now(), onupdate=_now
     )
 
     messages: Mapped[list[Message]] = relationship(
@@ -43,7 +54,7 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(24))
     content: Mapped[str] = mapped_column(Text)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = _created_at()
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
@@ -64,9 +75,9 @@ class Run(Base):
     taint_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Schema id the caller asked the final answer to follow (e.g. "research_note.v1").
     response_schema: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), default=_now, server_default=func.now(), onupdate=_now
     )
 
     conversation: Mapped[Conversation] = relationship(back_populates="runs")
@@ -85,9 +96,9 @@ class MCPServer(Base):
     config_json: Mapped[dict] = mapped_column(JSON)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), default=_now, server_default=func.now(), onupdate=_now
     )
 
     tools: Mapped[list[DiscoveredTool]] = relationship(back_populates="server", cascade="all, delete-orphan")
@@ -101,7 +112,7 @@ class DiscoveredTool(Base):
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     input_schema: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    discovered_at: Mapped[datetime] = _created_at()
 
     server: Mapped[MCPServer] = relationship(back_populates="tools")
 
@@ -118,9 +129,9 @@ class Policy(Base):
     target_server_id: Mapped[str | None] = mapped_column(ForeignKey("mcp_servers.id"), nullable=True)
     conditions_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     action_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), default=_now, server_default=func.now(), onupdate=_now
     )
 
 
@@ -146,7 +157,7 @@ class ApprovalRequest(Base):
     reason: Mapped[str] = mapped_column(Text)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     decision_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = _created_at()
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     run: Mapped[Run] = relationship(back_populates="approvals")
@@ -162,7 +173,7 @@ class AuditEvent(Base):
     run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id", ondelete="SET NULL"), index=True)
     event_type: Mapped[str] = mapped_column(String(64))
     payload_json: Mapped[dict] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = _created_at()
 
 
 class GuardDecision(Base):
@@ -197,7 +208,7 @@ class GuardDecision(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     excerpt: Mapped[str] = mapped_column(Text, default="")
     content_sha256: Mapped[str] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = _created_at()
 
 
 class GuardOverride(Base):
@@ -209,5 +220,5 @@ class GuardOverride(Base):
     policy_id: Mapped[str] = mapped_column(String(80), primary_key=True)
     mode: Mapped[str] = mapped_column(String(16))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), default=_now, server_default=func.now(), onupdate=_now
     )

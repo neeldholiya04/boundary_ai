@@ -352,3 +352,28 @@ def test_all_configs_present():
         "shadow",
     }
     assert isinstance(E2ERun().results, list)
+
+
+def test_cassette_key_ignores_spotlight_nonce_but_not_content():
+    from boundary_eval.e2e.cassette import _key
+
+    def msgs(nonce: str, body: str) -> dict:
+        system = f"Tool results appear between <<untrusted_tool_output {nonce}>> markers."
+        user = f"<<untrusted_tool_output {nonce}>>\n{body}\n<<end_untrusted_tool_output {nonce}>>"
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        return {"model": "m", "messages": messages}
+
+    assert _key(msgs("a1b2c3d4", "page")) == _key(msgs("99ff00ee", "page"))
+    assert _key(msgs("a1b2c3d4", "page")) != _key(msgs("a1b2c3d4", "other page"))
+
+
+def test_e2e_guard_lifts_timeouts_unless_asked(tmp_path):
+    from boundary_eval.e2e.runner import _build_guard
+    from boundary_eval.runner import _NO_TIMEOUT_MS
+
+    policy = tiny_policy(tmp_path)
+    lifted = _build_guard(policy, CONFIGS["filters"])
+    assert {p.timeout_ms for p in lifted.config.policies} == {_NO_TIMEOUT_MS}
+    enforced = _build_guard(policy, CONFIGS["filters"], enforce_timeouts=True)
+    assert {p.timeout_ms for p in enforced.config.policies} == {400}
+    assert _build_guard(policy, CONFIGS["no_defense"]) is None

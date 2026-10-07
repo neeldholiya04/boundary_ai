@@ -18,6 +18,7 @@ from boundary_agent.realtime import EventBroker
 from boundary_eval.e2e.checks import Trajectory, attack_succeeded, task_succeeded
 from boundary_eval.e2e.fixture_mcp import FixtureMCP
 from boundary_eval.e2e.scenarios import Kind, Scenario
+from boundary_eval.runner import _NO_TIMEOUT_MS
 from boundary_guard import Guard, Mode
 
 
@@ -71,10 +72,15 @@ class E2ERun:
     results: list[ScenarioResult] = field(default_factory=list)
 
 
-def _build_guard(policy_path: Path, config: Config) -> Guard | None:
+def _build_guard(policy_path: Path, config: Config, *, enforce_timeouts: bool = False) -> Guard | None:
     if not config.guard:
         return None
     guard = Guard.from_yaml(policy_path)
+    if not enforce_timeouts:
+        # Same rule as the detector eval: a verdict must not depend on how fast (or how short of
+        # memory) the machine is. Timeout behaviour is measured by the load test instead.
+        for policy in guard.config.policies:
+            policy.timeout_ms = _NO_TIMEOUT_MS
     if config.mode is not None:
         for pid in guard.policy_ids:
             guard.set_mode(pid, config.mode)
@@ -89,6 +95,7 @@ async def run_scenario(
     policy_path: Path,
     planner: Any | None = None,
     settings_overrides: dict[str, Any] | None = None,
+    enforce_timeouts: bool = False,
 ) -> ScenarioResult:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
@@ -117,7 +124,7 @@ async def run_scenario(
             mcp = FixtureMCP(server.id, server.name, responses, workspace=dict(scenario.workspace))
             broker = EventBroker(None)
             audit = AuditLogger(broker)
-            guard = _build_guard(policy_path, config)
+            guard = _build_guard(policy_path, config, enforce_timeouts=enforce_timeouts)
             adapter = GuardAdapter(guard, audit) if guard else None
 
             base_settings = {
@@ -177,6 +184,7 @@ async def run_matrix(
     policy_path: Path,
     planner_for: Any | None = None,
     settings_overrides: dict[str, Any] | None = None,
+    enforce_timeouts: bool = False,
 ) -> E2ERun:
     run = E2ERun()
     for config in configs:
@@ -190,6 +198,7 @@ async def run_matrix(
                     policy_path=policy_path,
                     planner=planner,
                     settings_overrides=settings_overrides,
+                    enforce_timeouts=enforce_timeouts,
                 )
             )
     return run

@@ -90,7 +90,7 @@ uv run boundary-eval build-extended            # rebuild extended set from pinne
 - [x] Phase 3: eval runner (Wilson CIs, latency bench), baseline, CI gate ([results](docs/EVAL.md#golden-v0-baseline))
 - [x] Phase 4: ML detectors (Prompt Guard 2, ProtectAI, Presidio, toxic-bert, MiniLM topic, NLI), extended set (2,406 records), threshold tuning ([results](docs/EVAL.md))
 - [x] Phase 5: guard enforced in the agent at all four stages, run taint, content review, spotlighting ([architecture](docs/ARCHITECTURE.md))
-- [x] Phase 6: end-to-end scenario harness (fixture MCP, ASR/utility metrics, LLM cassette); numbers pending an API key
+- [x] Phase 6: end-to-end scenario harness (fixture MCP, ASR/utility metrics, LLM cassette); with filters + taint, attack success 40% → 20% at 67% benign success (5 attack / 3 benign test scenarios; [results](docs/EVAL.md#end-to-end-results))
 - [x] Phase 7: CI gates (detector + e2e), sticky PR comment, nightly cassette refresh ([CI docs](docs/CI.md))
 - [x] Phase 8: our fine-tuned detector beats both off-the-shelf baselines on tool-output injection (82.8% catch / 9.5% FPR) ([detector](packages/detector/README.md))
 - [x] Phase 9: runtime mode overrides (persisted + audited), shadow-vs-enforce stats, Guardrails dashboard page

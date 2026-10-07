@@ -88,9 +88,13 @@ class PresidioPIIDetector(Detector):
         )
 
     def fingerprint(self) -> str:
-        import presidio_analyzer
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as package_version
 
-        version = getattr(presidio_analyzer, "__version__", "?")
+        try:  # presidio_analyzer has no __version__, so read the installed distribution's version
+            version = package_version("presidio-analyzer")
+        except PackageNotFoundError:
+            version = "?"
         return f"presidio {version}:{self.spacy_model}:{','.join(self.entities)}:{','.join(self.allow_list)}"
 
 

@@ -13,9 +13,12 @@ the dashboard build. A nightly job refreshes the replay cassette against a live 
 4. **Detector eval gate** — `boundary-eval detectors --suite golden` then `compare` against
    `packages/eval/baselines/golden.json` using [`packages/eval/gates.yaml`](../packages/eval/gates.yaml). This step downloads the
    pinned models (cached across runs), including the gated Prompt Guard, so it needs `HF_TOKEN`.
-5. **End-to-end gate** — if `packages/eval/cassettes/e2e.json` exists, `boundary-eval e2e --mode replay
-   --gates packages/eval/gates.yaml`: replays the agent runs and checks ASR and benign task success for the
-   `filters_taint` config. Skipped with a note until the cassette is recorded.
+5. **End-to-end gate** — `boundary-eval e2e --mode replay --gates packages/eval/gates.yaml` replays the
+   agent runs from the committed cassette (no LLM key, no network) and compares the `filters_taint`
+   config, scenario by scenario, with `packages/eval/baselines/e2e.json`. It fails if an attack that was
+   stopped in the baseline now succeeds, or a benign task that passed now fails, and names the
+   scenario. Improvements and new scenarios are reported only. A PR that changes the numbers on purpose
+   regenerates the baseline (`boundary-eval e2e --out packages/eval/baselines/e2e.json`).
 6. **Comment / summary** — the detector and e2e tables are written to the job summary and posted as a
    single **sticky PR comment** (updated in place, not re-posted).
 7. **Enforce gates** — the job fails if either gate failed. The comment is posted *before* this, so a
