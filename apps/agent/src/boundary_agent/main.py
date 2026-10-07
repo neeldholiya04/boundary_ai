@@ -6,8 +6,9 @@ import sys
 from contextlib import asynccontextmanager, suppress
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -15,7 +16,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from boundary_agent.agent import AgentRuntime
 from boundary_agent.audit import AuditLogger
-from boundary_agent.config import get_settings
+from boundary_agent.config import REPO_ROOT, get_settings
 from boundary_agent.db import SessionLocal, get_session, init_db
 from boundary_agent.guarding import (
     GuardAdapter,
@@ -24,6 +25,7 @@ from boundary_agent.guarding import (
     apply_overrides,
     mode_counts,
 )
+from boundary_agent.limits import DailySpend, RateLimiter
 from boundary_agent.llm import get_planner
 from boundary_agent.mcp_manager import MCPManager
 from boundary_agent.models import (
@@ -37,6 +39,7 @@ from boundary_agent.models import (
     Policy,
     Run,
 )
+from boundary_agent.playground import build_router
 from boundary_agent.policy import PolicyEngine
 from boundary_agent.realtime import EventBroker
 from boundary_agent.schemas import (
@@ -50,22 +53,40 @@ from boundary_agent.schemas import (
     PolicyUpdate,
 )
 from boundary_agent.secrets_mask import mask_config, unmask_config
-from boundary_guard import Guard, Mode
+from boundary_agent.telemetry import Telemetry
+from boundary_guard import CheckContext, Guard, Mode, Stage
+from boundary_guard.metrics import PrometheusSink
 
 settings = get_settings()
 broker = EventBroker(settings.redis_url)
 audit_logger = AuditLogger(broker)
 mcp_manager = MCPManager()
 policy_engine = PolicyEngine()
+telemetry = Telemetry.from_settings(settings)
+spend = DailySpend(settings.llm_daily_budget_usd)  # Redis attached in lifespan when configured
+limiter = RateLimiter()
 guard_policy_path = settings.resolved_guard_policy_path()
 guard = (
-    Guard.from_yaml(guard_policy_path, sinks=[GuardDecisionSink(SessionLocal, broker)])
+    Guard.from_yaml(guard_policy_path, sinks=[GuardDecisionSink(SessionLocal, broker), PrometheusSink()])
     if guard_policy_path
     else None
 )
-guard_adapter = GuardAdapter(guard, audit_logger, taint_labels=settings.guard_taint_labels) if guard else None
+if guard is not None:
+    telemetry.watch_guard_queue(guard)
+    telemetry.metadata.update(policy_version=str(guard.config.version), config_hash=guard.config_hash)
+guard_adapter = (
+    GuardAdapter(guard, audit_logger, taint_labels=settings.guard_taint_labels, telemetry=telemetry)
+    if guard
+    else None
+)
 agent_runtime = AgentRuntime(
-    settings, get_planner(settings), mcp_manager, policy_engine, audit_logger, guard=guard_adapter
+    settings,
+    get_planner(settings, telemetry=telemetry, spend=spend),
+    mcp_manager,
+    policy_engine,
+    audit_logger,
+    guard=guard_adapter,
+    telemetry=telemetry,
 )
 
 # Default taint rules: once a run has read content flagged as injection, mutating tools need a human.
@@ -101,10 +122,21 @@ async def _seed_guard_signal_policies(session: AsyncSession) -> None:
         )
 
 
+async def _warm_up_guard() -> None:
+    """One throwaway check per stage before serving: the first inference of each model is far slower
+    than the rest (lazy init, and pages pulled back in on a memory-starved host), and with
+    fail-closed timeouts that turned the first real request into a block. Marked source="warmup", so
+    it is kept out of the database and the app's metrics panels."""
+    for stage in Stage:
+        with suppress(Exception):  # warm-up is best effort
+            await guard.check(stage, "Warm-up request.", CheckContext(metadata={"source": "warmup"}))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await broker.connect()
+    spend.redis = limiter.redis = broker.redis  # shared budget/limits across replicas when Redis is on
     sweeper_stop = asyncio.Event()
     sweeper_task = asyncio.create_task(_approval_sweeper(sweeper_stop))
     async for session in get_session():
@@ -125,6 +157,8 @@ async def lifespan(app: FastAPI):
             await _apply_guard_overrides(session)
         await session.commit()
         break
+    if guard is not None:
+        await _warm_up_guard()
     yield
     if guard is not None:
         await guard.drain()
@@ -132,22 +166,48 @@ async def lifespan(app: FastAPI):
     sweeper_task.cancel()
     with suppress(asyncio.CancelledError):
         await sweeper_task
+    telemetry.flush()
     await broker.close()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+
+def _origins(origin: str) -> list[str]:
+    """The configured dashboard origin plus its localhost/127.0.0.1 twin (browsers treat them apart)."""
+    twins = {
+        origin,
+        origin.replace("://localhost", "://127.0.0.1"),
+        origin.replace("://127.0.0.1", "://localhost"),
+    }
+    return sorted(twins)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_origin, "http://127.0.0.1:3000"],
+    allow_origins=_origins(settings.frontend_origin),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+app.include_router(
+    build_router(
+        settings=settings, guard=guard, telemetry=telemetry, spend=spend, limiter=limiter, repo_root=REPO_ROOT
+    )
+)
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    """Prometheus scrape endpoint. Keep it off the public internet (Phase 12: proxy-restrict it)."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/api/conversations")
@@ -236,9 +296,16 @@ async def get_conversation_messages(
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, session: AsyncSession = Depends(get_session)):
-    return await agent_runtime.handle_chat(
+    response = await agent_runtime.handle_chat(
         session, payload.message, payload.conversation_id, response_schema=payload.response_schema
     )
+    response.trace_url = telemetry.trace_url(response.run_id)
+    return response
+
+
+@app.get("/api/runs/{run_id}/trace")
+async def run_trace(run_id: str) -> dict:
+    return {"enabled": telemetry.enabled, "url": telemetry.trace_url(run_id)}
 
 
 @app.get("/api/mcp/servers")
@@ -451,9 +518,13 @@ async def decide_approval(
     session: AsyncSession = Depends(get_session),
 ):
     try:
-        return await agent_runtime.decide_approval(session, approval_id, payload.decision, payload.comment)
+        response = await agent_runtime.decide_approval(
+            session, approval_id, payload.decision, payload.comment
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    response.trace_url = telemetry.trace_url(response.run_id)
+    return response
 
 
 @app.get("/api/guard/status")
@@ -480,6 +551,8 @@ async def guard_status() -> dict:
             for p in guard.config.policies
         ],
         "dropped_async": guard.dropped_async,
+        "pending_async": guard.pending_async,
+        "tracing": telemetry.enabled,
     }
 
 
@@ -488,6 +561,7 @@ async def _apply_guard_overrides(session: AsyncSession) -> None:
         return
     rows = (await session.scalars(select(GuardOverride))).all()
     apply_overrides(guard, [(o.policy_id, o.mode) for o in rows])
+    telemetry.metadata["config_hash"] = guard.config_hash
 
 
 @app.patch("/api/guard/policies/{policy_id}")
@@ -501,6 +575,7 @@ async def set_guard_mode(
 
     previous = guard.mode_of(policy_id).value
     guard.set_mode(policy_id, Mode(payload.mode))
+    telemetry.metadata["config_hash"] = guard.config_hash  # traces carry the hash in force
     # Persist as an override, or delete it when the mode matches the YAML default.
     default = next(p for p in guard.config.policies if p.id == policy_id).mode.value
     existing = await session.get(GuardOverride, policy_id)

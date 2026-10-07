@@ -57,8 +57,29 @@ class Settings(BaseSettings):
     remote_mcp_name: str = "context7"
     approval_ttl_seconds: int = 600
     approval_sweeper_interval_seconds: int = 5
+    # Tracing (Langfuse). Off unless both keys are set. Traces only ever hold guarded (redacted) text.
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
+    # Hard cap on real LLM spend per UTC day across the app (0 = no cap). Cassette replays don't count.
+    llm_daily_budget_usd: float = 0.0
+    # Public playground (scan + attack mode). Abuse controls: input size, per-client rate limits,
+    # the daily budget above, fixture-only tools. Live runs = pasted pages through the real model.
+    playground_enabled: bool = True
+    playground_live_runs: bool = True
+    playground_max_input_chars: int = 8000
+    playground_scans_per_minute: int = 30
+    playground_attacks_per_hour: int = 10
 
-    @field_validator("llm_api_key", "llm_api_base", "guard_policy_path", "redis_url", mode="before")
+    @field_validator(
+        "llm_api_key",
+        "llm_api_base",
+        "guard_policy_path",
+        "redis_url",
+        "langfuse_public_key",
+        "langfuse_secret_key",
+        mode="before",
+    )
     @classmethod
     def _blank_is_unset(cls, value: str | None) -> str | None:
         return value or None

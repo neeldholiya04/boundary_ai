@@ -44,6 +44,7 @@ pinned models into `~/.cache/huggingface`.
 | `uv run boundary web` | the dashboard against a running API |
 | `uv run boundary dev` | both together |
 | `uv run boundary status` | model, database, and the guard policies with their mode and action |
+| `docker compose --env-file .env -f infra/docker-compose.yml --profile observability up -d` | local Prometheus + Grafana with the guard dashboard ([observability](docs/OBSERVABILITY.md)) |
 
 Guard settings live in `.env`: `GUARD_POLICY_PATH` (default `policies/guard.yaml`; empty runs
 the agent unguarded), `GUARD_TOOL_OUTPUT_ON_BLOCK` (`continue` | `halt`), `GUARD_SPOTLIGHT`,
@@ -63,7 +64,7 @@ packages/      libraries the apps use
   detector/      boundary_detector: our fine-tuned tool-output injection detector + Colab training
 policies/      the guard's versioned policy YAML, rulesets, schemas (CHANGELOG.md)
 infra/         docker compose (local Postgres/Redis; Phase 12 deployment stack), Caddyfile
-docs/          IDEA and PLAN, threat model, eval design, architecture, agent internals, CI, demo
+docs/          IDEA and PLAN, threat model, eval, architecture, agent internals, observability, CI, demo
 ```
 
 ## Development
@@ -94,4 +95,5 @@ uv run boundary-eval build-extended            # rebuild extended set from pinne
 - [x] Phase 7: CI gates (detector + e2e), sticky PR comment, nightly cassette refresh ([CI docs](docs/CI.md))
 - [x] Phase 8: our fine-tuned detector beats both off-the-shelf baselines on tool-output injection (82.8% catch / 9.5% FPR) ([detector](packages/detector/README.md))
 - [x] Phase 9: runtime mode overrides (persisted + audited), shadow-vs-enforce stats, Guardrails dashboard page
-- [ ] Phase 10+: see [PLAN.md](docs/PLAN.md)
+- [x] Phase 10: Langfuse tracing (one trace per run, redacted only), Prometheus metrics + Grafana dashboard, public Playground (scan + attack mode) with rate limits and a daily LLM budget ([observability](docs/OBSERVABILITY.md))
+- [ ] Phase 11+: see [PLAN.md](docs/PLAN.md)

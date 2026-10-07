@@ -8,6 +8,7 @@ const NAV = [
   { href: "/chat", label: "Chat" },
   { href: "/policies", label: "Policies" },
   { href: "/guardrails", label: "Guardrails" },
+  { href: "/playground", label: "Playground" },
   { href: "/approvals", label: "Approvals" },
   { href: "/logs", label: "Logs" },
   { href: "/mcp-servers", label: "MCP" }

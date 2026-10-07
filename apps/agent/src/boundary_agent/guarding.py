@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from boundary_agent.audit import AuditLogger
 from boundary_agent.models import Conversation, GuardDecision, Run
 from boundary_agent.realtime import EventBroker
+from boundary_agent.telemetry import DISABLED, Telemetry
 from boundary_guard import (
     Action,
     CheckContext,
@@ -157,9 +158,11 @@ class GuardAdapter:
         audit_logger: AuditLogger,
         *,
         taint_labels: list[str] | None = None,
+        telemetry: Telemetry = DISABLED,
     ) -> None:
         self.guard = guard
         self.audit_logger = audit_logger
+        self.telemetry = telemetry
         labels = set(taint_labels or ["injection"])
         # Policies whose matches are sensitive and get redacted in stored excerpts.
         self.sensitive_policies = {
@@ -195,11 +198,13 @@ class GuardAdapter:
             references=references or [],
             response_schema=response_schema,
         )
-        result = await self.guard.check(stage, text, ctx)
-        # Redacted with the sensitive spans the blocking policies found. Set before the next await, so
-        # async policies scheduled by this check see it when their decisions reach the sink;
-        # the raw text itself is never handed on.
-        excerpt = _excerpt(text, result.decisions, self.sensitive_policies)
+        with self.telemetry.guard_check(stage.value) as span:
+            result = await self.guard.check(stage, text, ctx)
+            # Redacted with the sensitive spans the blocking policies found. Set before the next await,
+            # so async policies scheduled by this check see it when their decisions reach the sink;
+            # the raw text itself is never handed on (and the trace only gets this excerpt).
+            excerpt = _excerpt(text, result.decisions, self.sensitive_policies)
+            span.record(result, excerpt)
         digest = hashlib.sha256(text.encode()).hexdigest()
         ctx.metadata[_EXCERPT_KEY] = excerpt
         ctx.metadata[_DIGEST_KEY] = digest
@@ -250,6 +255,8 @@ class GuardDecisionSink:
         self.broker = broker
 
     async def record(self, event: DecisionEvent) -> None:
+        if event.ctx.metadata.get("source", "app") != "app":
+            return  # playground scans and startup warm-up are not agent runs: nothing is stored
         if not event.is_async:
             return  # blocking decisions are persisted by GuardAdapter.check, in the request's session
         excerpt = str(event.ctx.metadata.get(_EXCERPT_KEY, ""))

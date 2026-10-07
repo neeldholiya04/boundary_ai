@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 import re
 import secrets
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import litellm
 
 from boundary_agent.config import Settings
+from boundary_agent.limits import DailySpend
+from boundary_agent.telemetry import DISABLED, Telemetry
 from boundary_agent.types import ExecutedToolStep, PlannerDecision, PlannerMessage, ToolCall, ToolDescriptor
 
 # LiteLLM ships with a telemetry flag; keep request data on this machine.
@@ -218,8 +221,20 @@ class LiteLLMPlanner(BasePlanner):
     unless LLM_API_KEY / LLM_API_BASE override them.
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        telemetry: Telemetry = DISABLED,
+        spend: DailySpend | None = None,
+        completion: Callable[..., Awaitable[Any]] | None = None,
+    ) -> None:
         self.settings = settings
+        self.telemetry = telemetry
+        self.spend = spend
+        # A per-planner completion function (the playground replays from a cassette this way without
+        # touching the process-wide litellm.acompletion other requests use). None = the real provider.
+        self.completion = completion
 
     async def plan(
         self,
@@ -268,22 +283,60 @@ class LiteLLMPlanner(BasePlanner):
             for alias, tool in tool_aliases.items()
         ]
 
-        try:
-            response = await litellm.acompletion(
-                model=self.settings.llm_model,
-                messages=messages,
-                tools=tool_specs or None,
-                tool_choice="auto" if tool_specs else None,
-                temperature=self.settings.llm_temperature,
-                timeout=self.settings.llm_timeout_seconds,
-                num_retries=self.settings.llm_num_retries,
-                api_key=self.settings.llm_api_key,
-                api_base=self.settings.llm_api_base,
-            )
-        except Exception as exc:
-            raise RuntimeError(f"LLM request failed ({self.settings.llm_model}): {exc}") from exc
+        model = self.settings.llm_model
+        # Looked up per call, not bound at import, so the eval cassette's patch of litellm.acompletion
+        # still applies.
+        completion = self.completion or litellm.acompletion
+        real_provider = self.completion is None
+        if real_provider and self.spend is not None:
+            await self.spend.check()  # BudgetExceeded surfaces as a planner error for this run
 
-        return self._to_decision(response.model_dump(), tool_aliases, self._cost(response))
+        with self.telemetry.observe(
+            "planner",
+            as_type="generation",
+            model=model,
+            input=messages,
+            model_parameters={"temperature": self.settings.llm_temperature},
+            metadata={"tools": sorted(tool_aliases)},
+        ) as generation:
+            try:
+                response = await completion(
+                    model=model,
+                    messages=messages,
+                    tools=tool_specs or None,
+                    tool_choice="auto" if tool_specs else None,
+                    temperature=self.settings.llm_temperature,
+                    timeout=self.settings.llm_timeout_seconds,
+                    num_retries=self.settings.llm_num_retries,
+                    api_key=self.settings.llm_api_key,
+                    api_base=self.settings.llm_api_base,
+                )
+            except Exception as exc:
+                self.telemetry.record_llm(model=model, purpose="planner", outcome="error")
+                generation.update(level="ERROR", status_message=str(exc)[:500])
+                raise RuntimeError(f"LLM request failed ({model}): {exc}") from exc
+
+            data = response.model_dump()
+            cost = self._cost(response)
+            usage = data.get("usage") or {}
+            prompt_tokens = int(usage.get("prompt_tokens") or 0)
+            completion_tokens = int(usage.get("completion_tokens") or 0)
+            generation.update(
+                output=data["choices"][0]["message"],
+                usage_details={"input": prompt_tokens, "output": completion_tokens},
+                cost_details={"total": cost},
+            )
+            self.telemetry.record_llm(
+                model=model,
+                purpose="planner",
+                outcome="ok",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cost_usd=cost,
+            )
+        if real_provider and self.spend is not None:
+            await self.spend.add(cost)
+        return self._to_decision(data, tool_aliases, cost)
 
     def _to_decision(
         self,
@@ -376,13 +429,15 @@ class LiteLLMPlanner(BasePlanner):
         return aliases
 
 
-def get_planner(settings: Settings) -> BasePlanner:
+def get_planner(
+    settings: Settings, *, telemetry: Telemetry = DISABLED, spend: DailySpend | None = None
+) -> BasePlanner:
     if settings.llm_provider in ("litellm", "openai"):
         if settings.llm_api_key:
-            return LiteLLMPlanner(settings)
+            return LiteLLMPlanner(settings, telemetry=telemetry, spend=spend)
         env = litellm.validate_environment(model=settings.llm_model)
         if env.get("keys_in_environment"):
-            return LiteLLMPlanner(settings)
+            return LiteLLMPlanner(settings, telemetry=telemetry, spend=spend)
         missing = ", ".join(env.get("missing_keys") or []) or "provider credentials"
         return MissingPlanner(
             f"LLM_MODEL={settings.llm_model} needs {missing}. Set it in .env (repo root) "

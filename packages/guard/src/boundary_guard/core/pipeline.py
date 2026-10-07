@@ -98,6 +98,11 @@ class Guard:
         return self._config_hash
 
     @property
+    def pending_async(self) -> int:
+        """Async policy checks scheduled but not finished yet (the background backlog)."""
+        return len(self._pending)
+
+    @property
     def policy_ids(self) -> list[str]:
         return list(self._policies)
 
