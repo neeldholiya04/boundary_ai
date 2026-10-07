@@ -28,6 +28,18 @@ def _pick(rng: random.Random, alphabet: str, n: int) -> str:
     return "".join(rng.choice(alphabet) for _ in range(n))
 
 
+def _mixed(rng: random.Random, n: int) -> str:
+    """Random alphanumerics with at least one upper, lower and digit, like a real issued key."""
+    while True:
+        value = _pick(rng, _ALNUM, n)
+        if (
+            any(c.isupper() for c in value)
+            and any(c.islower() for c in value)
+            and any(c.isdigit() for c in value)
+        ):
+            return value
+
+
 def _b64url_json(obj: dict) -> str:
     return base64.urlsafe_b64encode(json.dumps(obj, separators=(",", ":")).encode()).rstrip(b"=").decode()
 
@@ -65,6 +77,18 @@ GENERATORS: dict[str, Callable[[random.Random], str]] = {
     "aws_key_id": lambda r: "AKIA" + _pick(r, _UPPER32, 16),
     "aws_secret": lambda r: _pick(r, _B64, 40),
     "openai": lambda r: "sk-proj-" + _pick(r, _B64URL, 64),
+    # Shapes the v1 secrets ruleset missed: a short project key, the legacy 48-char key, other
+    # providers' prefixes, and a token from a vendor no rule names.
+    "openai_short": lambda r: "sk-proj-" + _mixed(r, 20 + r.randint(0, 12)),
+    "openai_legacy": lambda r: "sk-" + _mixed(r, 48),
+    "groq": lambda r: "gsk_" + _mixed(r, 52),
+    "huggingface": lambda r: "hf_" + _mixed(r, 34),
+    "xai": lambda r: "xai-" + _mixed(r, 80),
+    "gitlab": lambda r: "glpat-" + _mixed(r, 20),
+    "npm": lambda r: "npm_" + _mixed(r, 36),
+    # Unconstrained on purpose: unlike issued keys above, nothing guarantees a vendor token mixes
+    # cases and digits, so the generic rules are measured on what they can and can't see.
+    "opaque_token": lambda r: _pick(r, _ALNUM, 40),
     "anthropic": lambda r: "sk-ant-api03-" + _pick(r, _B64URL, 93) + "AA",
     "google": lambda r: "AIza" + _pick(r, _B64URL, 35),
     "slack": lambda r: (

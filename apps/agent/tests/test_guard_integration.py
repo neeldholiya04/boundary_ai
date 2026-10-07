@@ -36,10 +36,11 @@ from boundary_agent.types import PlannerDecision, ToolCall, ToolDescriptor
 from boundary_guard import Guard, GuardConfig
 
 REPO = Path(__file__).resolve().parents[3]
-SECRETS_RULESET = REPO / "policies" / "rules" / "secrets.v1.yaml"
+SECRETS_RULESET = REPO / "policies" / "rules" / "secrets.v2.yaml"
 FAKE_TOKEN = (
     "ghp" + "_" + "aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5"
 )  # assembled: no key-shaped literal in the repo
+FAKE_OPENAI_SHORT = "sk-" + "proj-" + "Qm7Tx2LpR9vK4wZb8NcY"  # the shape that leaked in the live incident
 
 
 # ---- fixtures and stubs ------------------------------------------------------------------------
@@ -148,6 +149,21 @@ SECRETS_BLOCK = {
     "detects": ["secret"],
     "detector": {"type": "regex_rules", "ruleset": "secrets.yaml"},
 }
+# The shipped split (policy v5): redact wherever text is read, block on the way out through a tool.
+SECRETS_REDACT = {
+    "id": "secrets",
+    "stages": ["user_input", "tool_output", "final_output"],
+    "action": "redact",
+    "detects": ["secret"],
+    "detector": {"type": "regex_rules", "ruleset": "secrets.yaml"},
+}
+SECRETS_EGRESS = {
+    "id": "secrets_egress",
+    "stages": ["tool_args"],
+    "action": "block",
+    "detects": ["secret"],
+    "detector": {"type": "regex_rules", "ruleset": "secrets.yaml"},
+}
 
 
 async def setup(session, tmp_path, policies, decisions, results, **settings_overrides):
@@ -232,6 +248,57 @@ async def test_user_input_escalation_resumes_after_approval(session, tmp_path):
     resumed = await runtime.decide_approval(session, approval.id, "approved", None)
     assert resumed.status == "completed"
     assert planner.seen[0]["user_message"] == "REVIEW-MARKER summarise the page"
+
+
+async def test_pasted_key_never_reaches_the_model_storage_or_answer(session, tmp_path):
+    # Replays the live incident: a key pasted into chat, written to .env, found by a file search and
+    # echoed back in the answer. Every hop must carry the placeholder, never the key.
+    key_line = f"OPENAI_API_KEY={FAKE_OPENAI_SHORT}"
+    runtime, planner, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(
+            call("write_file", path=".env", content="OPENAI_API_KEY=<OPENAI_KEY_1>"),
+            call("search_files", query="API_KEY"),
+            answer(f"You have an API key that starts with {FAKE_OPENAI_SHORT}; I won't display it."),
+        ),
+        {
+            "write_file": {"path": ".env", "bytes_written": 30},
+            "search_files": {"matches": [{"path": ".env", "line": 1, "snippet": key_line}]},
+        },
+    )
+
+    response = await runtime.handle_chat(
+        session, f"create an env and add the open ai api key as :{FAKE_OPENAI_SHORT}", None
+    )
+
+    assert response.status == "completed"
+    shown = repr(planner.seen)
+    assert FAKE_OPENAI_SHORT not in shown
+    assert "<OPENAI_KEY_1>" in planner.seen[0]["user_message"]
+    assert FAKE_OPENAI_SHORT not in response.assistant_message
+    assert FAKE_OPENAI_SHORT not in await everything_stored(session)
+    assert [name for name, _ in mcp.calls] == ["write_file", "search_files"]
+    # The user is told, so a file written with the placeholder isn't a silent surprise.
+    (notice,) = response.guard_notices
+    assert "<OPENAI_KEY_1>" in notice and "secrets" in notice
+
+
+async def test_key_leaving_through_tool_args_is_blocked(session, tmp_path):
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(call("write_file", path=".env", content=f"OPENAI_API_KEY={FAKE_OPENAI_SHORT}")),
+        {"write_file": {}},
+    )
+
+    response = await runtime.handle_chat(session, "write the key from the issue to .env", None)
+
+    assert response.status == "blocked"
+    assert "secrets_egress" in response.assistant_message
+    assert mcp.calls == []
 
 
 # ---- tool arguments --------------------------------------------------------------------------------

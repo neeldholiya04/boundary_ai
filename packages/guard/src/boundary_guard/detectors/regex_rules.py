@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import math
 import re
 from collections import Counter
@@ -20,6 +22,24 @@ _THREAD_THRESHOLD_CHARS = 20_000
 _FLAG_NAMES = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL, "x": re.VERBOSE}
 
 
+def decodes_to_text(value: str) -> bool:
+    """True if `value` is base64 (standard or URL-safe) of readable text.
+
+    Issued keys are random bytes, which almost never decode to valid UTF-8, let alone prose; an
+    encoded sentence (say, an instruction hidden in a page) does. Rules that match "any long random
+    token" use this to tell the two apart.
+    """
+    padded = value + "=" * (-len(value) % 4)
+    for altchars in (None, b"-_"):  # standard, then URL-safe; validate so stray characters fail
+        try:
+            text = base64.b64decode(padded, altchars=altchars, validate=True).decode("utf-8")
+        except (binascii.Error, ValueError, UnicodeDecodeError):
+            continue
+        if len(text) >= 12 and " " in text and sum(c.isprintable() for c in text) / len(text) >= 0.95:
+            return True
+    return False
+
+
 def shannon_entropy(value: str) -> float:
     """Bits per character."""
     if not value:
@@ -36,6 +56,7 @@ class Rule:
     pattern: re.Pattern[str]
     group: str | int | None
     min_entropy: float | None
+    exclude_encoded_text: bool = False
 
 
 class RegexRulesDetector(Detector):
@@ -51,6 +72,7 @@ class RegexRulesDetector(Detector):
             pattern: '\\b(?:AKIA|ASIA)[0-9A-Z]{16}\\b'
             group: 0                     # optional capture group (name or index) holding the value
             min_entropy: 3.0             # optional, bits/char of the captured value
+            exclude_encoded_text: true   # optional, skip values that are base64 of readable text
             flags: [i]
     """
 
@@ -76,6 +98,7 @@ class RegexRulesDetector(Detector):
                     pattern=re.compile(item["pattern"], flags),
                     group=item.get("group"),
                     min_entropy=item.get("min_entropy"),
+                    exclude_encoded_text=bool(item.get("exclude_encoded_text", False)),
                 )
             )
         if not rules:
@@ -100,6 +123,8 @@ class RegexRulesDetector(Detector):
                 if rule.min_entropy is not None and shannon_entropy(value) < rule.min_entropy:
                     continue
                 if any(a.search(value) for a in self.allowlist):
+                    continue
+                if rule.exclude_encoded_text and decodes_to_text(value):
                     continue
                 start, end = m.span(group)
                 spans.append(Span(start, end, rule.label))

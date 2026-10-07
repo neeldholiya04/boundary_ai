@@ -6,8 +6,8 @@ How the guard is measured. The threat model this covers is in [THREAT_MODEL.md](
 
 | Set | Where | Status |
 |---|---|---|
-| **Golden** (hand-written) | `packages/eval/datasets/golden/` | v0 complete: 81 records (51 attacks, 30 decoys), 28 dev / 53 test |
-| **Extended** (public benchmarks, pinned + sampled) | `packages/eval/datasets/extended/` | 2,406 records from 6 sources ([SOURCES.md](../packages/eval/datasets/extended/SOURCES.md)); 1,784 scored (dev + test), 622 `train` held back for Phase 8 |
+| **Golden** (hand-written) | `packages/eval/datasets/golden/` | 103 records (64 attacks, 39 decoys), 35 dev / 68 test; v0 had 81, policy v5 added 21 secrets records and decoys |
+| **Extended** (public benchmarks, pinned + sampled) | `packages/eval/datasets/extended/` | 2,599 records from 7 sources ([SOURCES.md](../packages/eval/datasets/extended/SOURCES.md)), incl. the generated `synthetic_secrets` (policy v5); 1,977 scored (dev + test), 622 `train` held back for Phase 8 |
 | **Detector training** (`split: train` only) | `packages/detector/` | Phase 8 |
 | **End-to-end scenarios** | `packages/eval/scenarios/` | Phase 6 |
 
@@ -71,7 +71,7 @@ baseline `packages/eval/baselines/golden.json` using `packages/eval/gates.yaml`:
 
 - **Relative:** catch rate may not drop, and FPR may not rise, by more than 2pp on the test split.
   The detectors are deterministic, so on the golden set that means *no record may flip the wrong way*.
-- **Absolute:** `secrets` and `pii` must catch 100% with FPR ≤ 5%; `research_note_schema` must catch
+- **Absolute:** `secrets` and `pii` must catch 100% with FPR ≤ 5% (`secrets_egress`: ≤ 2%, since it blocks); `research_note_schema` must catch
   100% with 0% FPR. The injection, toxicity and topic detectors get relative gates only.
 - **Latency** is reported but not gated (shared runners are too noisy).
 - The comparison table (with record-level flips: newly missed / newly caught / new or resolved false
@@ -179,7 +179,7 @@ Config `4843add6a480950f`. Full reports: [golden](../packages/eval/baselines/gol
 
 | Policy | Extended catch / FPR | Golden catch / FPR | Notes |
 |---|---|---|---|
-| `secrets` | – / 0.0% (753 neg) | 6/6 / 0/34 | regex + entropy; no false alarms on test keys, doc example keys, SHAs, UUIDs |
+| `secrets` + `secrets_egress` (v5) | 100% / 0.0% (88 / 1,135) | 15/15 / 0/53 | ruleset v2 after a live leak (see CHANGELOG v5); v1 caught 58% / 40%. The extended positives are generated, so they are a regression check |
 | `pii` (redact) | 87.8% / 0.0% | 4/4 / 0/42 | misses: bare phone numbers (see limitations) |
 | `pii_egress` | 68.2% / 0.0% | 1/1 / 0/6 | phone numbers as digit strings in URLs are missed |
 | `toxicity` | 81.9% [73–88] / 1.2% | 1/2 / 0/9 | tuned 0.5 → 0.119; weak on the group's hand-written threats and slurs |

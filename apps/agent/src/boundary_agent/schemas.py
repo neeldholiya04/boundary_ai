@@ -28,6 +28,8 @@ class ChatResponse(BaseModel):
     executed_tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     approval_request_id: str | None = None
     trace_url: str | None = None  # Langfuse trace for this run, when tracing is on
+    # What the guard changed in the user's own message (e.g. a pasted key replaced by a placeholder).
+    guard_notices: list[str] = Field(default_factory=list)
 
 
 class MCPServerCreate(BaseModel):
