@@ -350,6 +350,7 @@ def test_all_configs_present():
         "filters_spotlight",
         "filters_taint",
         "shadow",
+        "enforce",
     }
     assert isinstance(E2ERun().results, list)
 

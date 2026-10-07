@@ -105,3 +105,24 @@ def test_get_planner_requires_explicit_mock_opt_in() -> None:
     planner = get_planner(Settings(llm_provider="mock", allow_demo_mock_planner=False))
 
     assert isinstance(planner, MissingPlanner)
+
+
+async def test_stub_planner_reads_the_page_then_answers_after_the_simulated_latency():
+    import time
+
+    from boundary_agent.config import Settings
+    from boundary_agent.llm import StubPlanner, get_planner
+    from boundary_agent.types import ExecutedToolStep, ToolDescriptor
+
+    settings = Settings(llm_provider="stub", allow_demo_mock_planner=True, stub_llm_latency_ms=50)
+    planner = get_planner(settings)
+    assert isinstance(planner, StubPlanner)
+    tools = [ToolDescriptor("s1", "local-sandbox", "stdio", "read_file", "Read a file", {})]
+    started = time.perf_counter()
+    first = await planner.plan("summarise the page", tools, [], [])
+    assert time.perf_counter() - started >= 0.05
+    assert first.tool_call.tool_name == "read_file"
+    assert first.tool_call.arguments == {"path": "loadtest/page.md"}
+    step = ExecutedToolStep(tool_call=first.tool_call, result={"content": "page"}, is_error=False)
+    second = await planner.plan("summarise the page", tools, [step], [])
+    assert second.tool_call is None and "workaround" in second.assistant_message

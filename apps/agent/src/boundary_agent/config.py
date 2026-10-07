@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./boundary.db"
     redis_url: str | None = None
     frontend_origin: str = "http://localhost:3000"
-    # "litellm" (default; "openai" is accepted as an alias) or "mock".
+    # "litellm" (default; "openai" is accepted as an alias), "mock" (demo) or "stub" (load tests); the
+    # last two need ALLOW_DEMO_MOCK_PLANNER=true.
     llm_provider: str = "litellm"
     allow_demo_mock_planner: bool = False
     # LiteLLM model string: the prefix picks the provider, e.g. openai/gpt-4.1-mini,
@@ -33,6 +34,9 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     llm_api_base: str | None = None
     llm_temperature: float = 0.0
+    # Load-test stub planner: simulated LLM latency per planner call, and the sandbox page it reads.
+    stub_llm_latency_ms: int = 800
+    stub_page_path: str = "loadtest/page.md"
     llm_timeout_seconds: float = 30.0
     llm_num_retries: int = 2
     # Guard policy file (relative paths resolve from the repo root). Unset disables the guard.

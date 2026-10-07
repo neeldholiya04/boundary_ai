@@ -109,3 +109,6 @@ Every run is one Langfuse trace (planner generations, tool spans, a guardrail sp
 with a child per policy), and the guard's decisions are Prometheus metrics via the library's
 `PrometheusSink`. Traces only hold guarded text. See [OBSERVABILITY.md](OBSERVABILITY.md), which
 also covers the playground and its abuse controls.
+
+What all of this costs, and how well it works, is measured rather than claimed: see
+[RESULTS.md](RESULTS.md) (generated from the committed eval, end-to-end and load-test results).

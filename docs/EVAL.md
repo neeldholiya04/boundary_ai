@@ -147,7 +147,7 @@ dev-tuned threshold transferred to test (dev FPR 9.7% → test 9.5%) whereas the
 (test FPR 20–28%). It stays in `policies/experiments/our_detector.yaml`; promote it into
 `policies/guard.yaml` once the model is hosted somewhere CI can fetch it (e.g. the HF Hub).
 
-## Results: policy v3
+## Results: policy v3 (unchanged in v4)
 
 Config `4843add6a480950f`. Full reports: [golden](../packages/eval/baselines/golden.md) ·
 [extended](../packages/eval/baselines/extended.md). Test split; 95% Wilson intervals in brackets.
@@ -228,7 +228,7 @@ Warmed benchmark on the golden set (`--repeats 20`, Apple-silicon laptop CPU, no
 
 The agent itself, run against the scenario suite under each defence config, with the planner's LLM
 calls replayed from the committed cassette (`packages/eval/cassettes/e2e.json`, gpt-4.1-mini,
-recorded 2026-10-07 against policy v4). Guard timeouts are lifted, as in the detector eval.
+recorded 2026-10-07 against policy v4; the `enforce` config was added the same day). Guard timeouts are lifted, as in the detector eval.
 Reproduce: `uv run boundary-eval e2e` (no key needed). Test split: 5 attack and 3 benign scenarios,
 so each scenario moves a rate by 20–33 points; the 95% intervals below are wide on purpose.
 
@@ -239,6 +239,7 @@ so each scenario moves a rate by 20–33 points; the 95% intervals below are wid
 | `filters` (injection detectors in shadow) | 40% [12–77] | 100% [44–100] | 0.0012 |
 | `filters_spotlight` | 60% [23–88] | 100% [44–100] | 0.0019 |
 | **`filters_taint`** (what the app runs) | **20% [4–62]** | **67% [21–94]** | 0.0013 |
+| `enforce` (every policy enforced, + taint) | 0% [0–43] | 67% [21–94] | 0.0010 |
 
 What drives the numbers:
 
@@ -251,6 +252,12 @@ What drives the numbers:
 - **Taint has a false-positive cost.** `e2e-benign-injection-article` is a harmless article *about*
   prompt injection; the shadow detector flags it, the run is tainted, and saving the note waits for
   approval, so the benign task does not complete.
+- **Enforcing the detectors closes that gap.** With every policy enforced, the flagged pages are
+  withheld from the model, so the output-only hijack fails too: attack success **0 of 5**, at the same
+  2-of-3 benign success as the shipped config (the same article-about-injection false positive, now as
+  a withheld page instead of a held write). The cost is that every detector false positive now hides
+  content outright instead of just asking for approval, which is why the shipped stance keeps them in
+  shadow + taint and leaves enforcing as a per-deployment switch on the Guardrails page.
 - **Spotlighting did not help here:** it turned one attack (`e2e-ind-docs-middle`) from failed into
   successful. One scenario out of five, so not conclusive, but reported as measured.
 

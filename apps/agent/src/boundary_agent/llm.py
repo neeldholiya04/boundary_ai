@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import secrets
@@ -40,6 +41,37 @@ class MissingPlanner(BasePlanner):
         conversation_history: list[PlannerMessage],
     ) -> PlannerDecision:
         raise RuntimeError(self.message)
+
+
+class StubPlanner(BasePlanner):
+    """Load-test planner: a fixed script with a fixed simulated LLM latency, so a load test measures the
+    guard and the agent loop rather than a provider. Each run reads one sandbox page (read_file), then
+    answers with a summary grounded in it: every guard stage runs on realistic text, no tokens are spent.
+    """
+
+    SUMMARY = (
+        "The page is a bug report about a stale index: results went missing after an upgrade, and the "
+        "suggested workaround is to rebuild the index and clear the cache before restarting."
+    )
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+    async def plan(
+        self,
+        user_message: str,
+        tools: list[ToolDescriptor],
+        executed_steps: list[ExecutedToolStep],
+        conversation_history: list[PlannerMessage],
+    ) -> PlannerDecision:
+        await asyncio.sleep(self.settings.stub_llm_latency_ms / 1000)
+        reader = next((t for t in tools if t.name == "read_file"), None)
+        if not executed_steps and reader is not None:
+            return PlannerDecision(
+                assistant_message=None,
+                tool_call=ToolCall(reader.server_id, reader.name, {"path": self.settings.stub_page_path}),
+            )
+        return PlannerDecision(assistant_message=self.SUMMARY)
 
 
 class MockPlanner(BasePlanner):
@@ -446,6 +478,8 @@ def get_planner(
         )
     if settings.llm_provider == "mock" and settings.allow_demo_mock_planner:
         return MockPlanner()
+    if settings.llm_provider == "stub" and settings.allow_demo_mock_planner:
+        return StubPlanner(settings)
     return MissingPlanner(
         f"Unsupported LLM_PROVIDER={settings.llm_provider!r}. Use 'litellm' (default), "
         "or 'mock' together with ALLOW_DEMO_MOCK_PLANNER=true for local-only demos."

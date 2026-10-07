@@ -44,6 +44,9 @@ CONFIGS: dict[str, Config] = {
     "filters_spotlight": Config("filters_spotlight", guard=True, spotlight=True, taint=False),
     "filters_taint": Config("filters_taint", guard=True, spotlight=True, taint=True),
     "shadow": Config("shadow", guard=True, mode=Mode.SHADOW, spotlight=True, taint=True),
+    # Every policy enforced, the tool-output injection detectors included (blocked output is withheld
+    # from the model): the "what if we enforced everything" comparison point.
+    "enforce": Config("enforce", guard=True, mode=Mode.ENFORCE, spotlight=True, taint=True),
 }
 
 # The guard_signal rules main.py seeds; the runner adds them for `taint` configs.

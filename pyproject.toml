@@ -21,6 +21,7 @@ dev = [
   "accelerate>=1.0",
   "scikit-learn>=1.5",
   "protobuf>=5.0",
+  "locust>=2.30",
 ]
 
 [tool.uv]

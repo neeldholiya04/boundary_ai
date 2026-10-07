@@ -660,6 +660,30 @@ Each phase ends with something that runs, is tested, and is committed. Sizes: S 
 - `docs/RESULTS.md` + README headline numbers (template below); architecture doc updated; demo script.
 - **Exit:** every number in IDEA.md's "Published numbers" list exists, with its reproduction command.
 
+**Phase 11 outcome (done):**
+- **Load test:** `boundary-eval loadtest` drives the agent with Locust (closed loop, 1/2/4 users, 60 s
+  per level) through three profiles: `filters_off`, `async` (as shipped) and `blocking` (async checks
+  made blocking). It uses a stub planner with 800 ms of simulated LLM latency and its own Postgres
+  database, records per-policy latency from the decisions table, and is committed as
+  `packages/eval/baselines/loadtest.json`.
+- **Findings:**
+  - Guard overhead is about +5 s p50 per request on the 8.6 GB dev laptop. Almost all of it is three
+    transformer checks (ProtectAI on tool output, Prompt Guard on input, toxicity on output), each
+    1.3–2.2 s p50 under load against tens of ms in the eval's warm loop.
+  - Throughput saturates around 0.3 req/s.
+  - `async` beats `blocking` only at the tail and while the CPU has headroom.
+  - Levers for Phase 12: enough RAM to keep the models resident, and shadow-mode checks off the
+    request path.
+- **e2e:** a new `enforce` config (every policy enforced, + taint) gives attack success 0/5 at 67%
+  benign success. That needed 5 new cassette calls ($0.01); the e2e baseline is refreshed with all
+  seven configs and the gate still passes.
+- **Baselines regenerated for policy v4** (golden with 20 timed passes, extended). Golden numbers are
+  unchanged from v3.
+- **`boundary-eval results`** generates `docs/RESULTS.md` and the README results block from the
+  committed files, so published numbers can't drift from the evidence.
+- **Demo script rewritten** around the guard (docs/DEMO.md).
+- **Left for you:** the blocked-PR screenshot (needs the `HF_TOKEN` CI secret and branch protection).
+
 ### Phase 12 — Operations (later)
 - **Hosting.** Our CPU models need roughly 2–4 GB RAM, so check free-tier limits. Candidate setups:
   - (a) an always-free ARM VM (e.g. Oracle Cloud) running the existing `infra/docker-compose.deploy.yml` + Caddy.
