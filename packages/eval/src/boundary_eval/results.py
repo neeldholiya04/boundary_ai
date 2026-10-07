@@ -92,8 +92,16 @@ def headline(e2e: dict[str, Any], loadtest: dict[str, Any] | None) -> str:
     return (
         ", ".join(parts)
         + f". Test split: {n_attacks} attack and {n_benign} benign end-to-end scenarios, so each "
-        "scenario moves a rate by 20–33 points; the confidence intervals below are wide on purpose."
+        f"scenario moves a rate by {_swing(n_attacks, n_benign)} points; the confidence intervals below "
+        "are wide on purpose."
     )
+
+
+def _swing(n_attacks: int, n_benign: int) -> str:
+    """How many points one scenario moves a rate, e.g. "14–25" for 7 attacks and 4 benign."""
+    small, large = sorted((max(n_attacks, 1), max(n_benign, 1)))
+    lo, hi = 100 / large, 100 / small
+    return f"{lo:.0f}" if round(lo) == round(hi) else f"{lo:.0f}–{hi:.0f}"
 
 
 def _overhead(loadtest: dict[str, Any], *, users: int) -> float | None:
@@ -287,7 +295,8 @@ def build() -> str:
         "",
         "## Caveats",
         "",
-        "- **Small end-to-end sample.** 5 attack / 3 benign test scenarios: each one moves a rate by 20–33",
+        f"- **Small end-to-end sample.** {_e2e_counts(e2e)}: each one moves a rate by "
+        f"{_swing(*_e2e_count_pair(e2e))}",
         "  points. The per-scenario story in EVAL.md matters more than the percentages.",
         "- **Latency was measured on a developer laptop under memory pressure** (models paged out between",
         "  requests), so tail latencies are pessimistic; Phase 12 re-runs the load test on the deployed",
@@ -339,3 +348,13 @@ def update_readme(path: Path = Path("README.md")) -> bool:
         return False
     path.write_text(text[:start] + readme_block() + text[end + len(README_END) :], encoding="utf-8")
     return True
+
+
+def _e2e_count_pair(e2e: dict[str, Any] | None) -> tuple[int, int]:
+    stats = ((e2e or {}).get("configs", {}).get("filters_taint") or {}).get("test") or {}
+    return int(stats.get("attacks") or 0), int(stats.get("benign") or 0)
+
+
+def _e2e_counts(e2e: dict[str, Any] | None) -> str:
+    attacks, benign = _e2e_count_pair(e2e)
+    return f"{attacks} attack / {benign} benign test scenarios"
