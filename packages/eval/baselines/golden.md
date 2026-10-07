@@ -1,6 +1,6 @@
 # Detector eval: golden
 
-config `4843add6a480950f` (policy v3) · dataset `e41c36123091bcc4` (81 records) · git `uncommitted` (dirty) · 2026-09-26T11:24:13+00:00 · repeats=20
+config `cdc446ad25e5cb26` (policy v4) · dataset `e41c36123091bcc4` (81 records) · git `6ee552562bca` (dirty) · 2026-10-07T08:20:40+00:00 · repeats=20 · timeouts lifted
 
 Catch rate = share of positives the policy fired on; FPR = share of negatives it fired on. Brackets are 95% Wilson intervals. Scored on `would_action`, so shadow policies count. Latency is per policy per check (ms).
 
@@ -8,33 +8,33 @@ Catch rate = share of positives the policy fired on; FPR = share of negatives it
 
 | Policy | Detects | Mode | Pos / Neg | Catch rate | FPR | Precision | p50 / p99 ms | $/1k | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| `user_injection_promptguard` | injection, jailbreak | enforce | 6 / 7 | 83.3% [44–97] | 28.6% [8–64] | 71% | 85 / 1326 | 0.0000 | 0 |
-| `jailbreak_patterns` | injection, jailbreak | shadow | 6 / 7 | 16.7% [3–56] | 14.3% [3–51] | 50% | 0.06 / 0.42 | 0.0000 | 0 |
-| `topic` | off_topic | enforce | 1 / 12 | 100.0% [21–100] | 8.3% [1–35] | 50% | 19 / 268 | 0.0000 | 0 |
-| `tool_output_injection_protectai` | injection | shadow | 10 / 12 | 40.0% [17–69] | 41.7% [19–68] | 44% | 122 / 2824 | 0.0000 | 0 |
-| `tool_output_injection_heuristic` | injection | shadow | 10 / 12 | 20.0% [6–51] | 8.3% [1–35] | 67% | 0.07 / 1.16 | 0.0000 | 0 |
-| `secrets` | secret | enforce | 6 / 34 | 100.0% [61–100] | 0.0% [0–10] | 100% | 0.05 / 1.37 | 0.0000 | 0 |
-| `pii` | pii | enforce | 4 / 42 | 100.0% [51–100] | 0.0% [0–8] | 100% | 15 / 453 | 0.0000 | 0 |
-| `pii_egress` | pii | enforce | 1 / 6 | 100.0% [21–100] | 0.0% [0–39] | 100% | 6.39 / 103 | 0.0000 | 0 |
-| `research_note_schema` | schema_invalid | enforce | 1 / 1 | 100.0% [21–100] | 0.0% [0–79] | 100% | 0.46 / 19 | 0.0000 | 0 |
-| `toxicity` | toxicity | enforce | 2 / 9 | 50.0% [9–91] | 0.0% [0–30] | 100% | 42 / 1594 | 0.0000 | 0 |
-| `groundedness` | hallucination | shadow | 2 / 1 | 100.0% [34–100] | 0.0% [0–79] | 100% | 86 / 5701 | 0.0000 | 0 |
+| `user_injection_promptguard` | injection, jailbreak | enforce | 6 / 7 | 83.3% [44–97] | 28.6% [8–64] | 71% | 87 / 2109 | 0.0000 | 0 |
+| `jailbreak_patterns` | injection, jailbreak | shadow | 6 / 7 | 16.7% [3–56] | 14.3% [3–51] | 50% | 0.05 / 0.95 | 0.0000 | 0 |
+| `topic` | off_topic | enforce | 1 / 12 | 100.0% [21–100] | 8.3% [1–35] | 50% | 19 / 502 | 0.0000 | 0 |
+| `tool_output_injection_protectai` | injection | shadow | 10 / 12 | 40.0% [17–69] | 41.7% [19–68] | 44% | 121 / 3956 | 0.0000 | 0 |
+| `tool_output_injection_heuristic` | injection | shadow | 10 / 12 | 20.0% [6–51] | 8.3% [1–35] | 67% | 0.06 / 1.06 | 0.0000 | 0 |
+| `secrets` | secret | enforce | 6 / 34 | 100.0% [61–100] | 0.0% [0–10] | 100% | 0.05 / 1.16 | 0.0000 | 0 |
+| `pii` | pii | enforce | 4 / 42 | 100.0% [51–100] | 0.0% [0–8] | 100% | 15 / 404 | 0.0000 | 0 |
+| `pii_egress` | pii | enforce | 1 / 6 | 100.0% [21–100] | 0.0% [0–39] | 100% | 5.79 / 19 | 0.0000 | 0 |
+| `research_note_schema` | schema_invalid | enforce | 1 / 1 | 100.0% [21–100] | 0.0% [0–79] | 100% | 0.45 / 7.85 | 0.0000 | 0 |
+| `toxicity` | toxicity | enforce | 2 / 9 | 50.0% [9–91] | 0.0% [0–30] | 100% | 49 / 1410 | 0.0000 | 0 |
+| `groundedness` | hallucination | shadow | 2 / 1 | 100.0% [34–100] | 0.0% [0–79] | 100% | 108 / 3248 | 0.0000 | 0 |
 
 ## dev split
 
 | Policy | Detects | Mode | Pos / Neg | Catch rate | FPR | Precision | p50 / p99 ms | $/1k | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| `user_injection_promptguard` | injection, jailbreak | enforce | 3 / 5 | 33.3% [6–79] | 0.0% [0–43] | 100% | 85 / 1326 | 0.0000 | 0 |
-| `jailbreak_patterns` | injection, jailbreak | shadow | 3 / 5 | 33.3% [6–79] | 0.0% [0–43] | 100% | 0.06 / 0.42 | 0.0000 | 0 |
-| `topic` | off_topic | enforce | 1 / 7 | 100.0% [21–100] | 0.0% [0–35] | 100% | 19 / 268 | 0.0000 | 0 |
-| `tool_output_injection_protectai` | injection | shadow | 4 / 6 | 0.0% [0–49] | 16.7% [3–56] | 0% | 122 / 2824 | 0.0000 | 0 |
-| `tool_output_injection_heuristic` | injection | shadow | 4 / 6 | 0.0% [0–49] | 0.0% [0–39] | – | 0.07 / 1.16 | 0.0000 | 0 |
-| `secrets` | secret | enforce | 3 / 17 | 100.0% [44–100] | 0.0% [0–18] | 100% | 0.05 / 1.37 | 0.0000 | 0 |
-| `pii` | pii | enforce | 3 / 22 | 66.7% [21–94] | 4.5% [1–22] | 67% | 15 / 453 | 0.0000 | 0 |
-| `pii_egress` | pii | enforce | 1 / 2 | 100.0% [21–100] | 0.0% [0–66] | 100% | 6.39 / 103 | 0.0000 | 0 |
-| `research_note_schema` | schema_invalid | enforce | 1 / 1 | 100.0% [21–100] | 0.0% [0–79] | 100% | 0.46 / 19 | 0.0000 | 0 |
-| `toxicity` | toxicity | enforce | 1 / 6 | 0.0% [0–79] | 0.0% [0–39] | – | 42 / 1594 | 0.0000 | 0 |
-| `groundedness` | hallucination | shadow | 1 / 0 | 100.0% [21–100] | – | 100% | 86 / 5701 | 0.0000 | 0 |
+| `user_injection_promptguard` | injection, jailbreak | enforce | 3 / 5 | 33.3% [6–79] | 0.0% [0–43] | 100% | 87 / 2109 | 0.0000 | 0 |
+| `jailbreak_patterns` | injection, jailbreak | shadow | 3 / 5 | 33.3% [6–79] | 0.0% [0–43] | 100% | 0.05 / 0.95 | 0.0000 | 0 |
+| `topic` | off_topic | enforce | 1 / 7 | 100.0% [21–100] | 0.0% [0–35] | 100% | 19 / 502 | 0.0000 | 0 |
+| `tool_output_injection_protectai` | injection | shadow | 4 / 6 | 0.0% [0–49] | 16.7% [3–56] | 0% | 121 / 3956 | 0.0000 | 0 |
+| `tool_output_injection_heuristic` | injection | shadow | 4 / 6 | 0.0% [0–49] | 0.0% [0–39] | – | 0.06 / 1.06 | 0.0000 | 0 |
+| `secrets` | secret | enforce | 3 / 17 | 100.0% [44–100] | 0.0% [0–18] | 100% | 0.05 / 1.16 | 0.0000 | 0 |
+| `pii` | pii | enforce | 3 / 22 | 66.7% [21–94] | 4.5% [1–22] | 67% | 15 / 404 | 0.0000 | 0 |
+| `pii_egress` | pii | enforce | 1 / 2 | 100.0% [21–100] | 0.0% [0–66] | 100% | 5.79 / 19 | 0.0000 | 0 |
+| `research_note_schema` | schema_invalid | enforce | 1 / 1 | 100.0% [21–100] | 0.0% [0–79] | 100% | 0.45 / 7.85 | 0.0000 | 0 |
+| `toxicity` | toxicity | enforce | 1 / 6 | 0.0% [0–79] | 0.0% [0–39] | – | 49 / 1410 | 0.0000 | 0 |
+| `groundedness` | hallucination | shadow | 1 / 0 | 100.0% [21–100] | – | 100% | 108 / 3248 | 0.0000 | 0 |
 
 ## Misses and false alarms (test)
 
@@ -113,7 +113,7 @@ For attack categories this is the catch count; for `benign` it is the false-alar
 
 | Stage | Samples | p50 | p95 | p99 |
 |---|---|---|---|---|
-| final_output | 360 | 43 | 915 | 1595 |
-| tool_args | 200 | 6.54 | 24 | 103 |
-| tool_output | 640 | 122 | 1526 | 2825 |
-| user_input | 420 | 86 | 535 | 1326 |
+| final_output | 360 | 49 | 1077 | 1411 |
+| tool_args | 200 | 5.91 | 16 | 19 |
+| tool_output | 640 | 121 | 1873 | 3957 |
+| user_input | 420 | 87 | 1117 | 2110 |

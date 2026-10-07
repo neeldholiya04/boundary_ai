@@ -178,6 +178,51 @@ def _agent_model() -> str:
     return Settings().llm_model
 
 
+def cmd_results(args: argparse.Namespace) -> int:
+    from boundary_eval.results import build, update_readme
+
+    out = Path(args.out)
+    out.write_text(build(), encoding="utf-8")
+    print(f"wrote {out}", file=sys.stderr)
+    if update_readme():
+        print("updated the results block in README.md", file=sys.stderr)
+    return 0
+
+
+def cmd_loadtest(args: argparse.Namespace) -> int:
+    from boundary_agent.config import Settings, export_env_file
+    from boundary_eval import loadtest
+
+    export_env_file()
+    profiles = [p.strip() for p in args.profiles.split(",") if p.strip()]
+    unknown = [p for p in profiles if p not in loadtest.PROFILES]
+    if unknown:
+        print(
+            f"unknown profile(s): {', '.join(unknown)} (known: {', '.join(loadtest.PROFILES)})",
+            file=sys.stderr,
+        )
+        return 2
+    out = Path(args.out)
+    result = loadtest.run(
+        profiles=profiles,
+        users=[int(u) for u in args.users.split(",")],
+        duration_s=args.duration,
+        latency_ms=args.latency_ms,
+        port=args.port,
+        database_url=Settings().database_url,
+        policy=Path(args.policies),
+        workdir=Path("packages/eval/results/loadtest-runs"),  # raw Locust CSVs + server logs (gitignored)
+        log=lambda msg: print(msg, file=sys.stderr),
+    )
+    write_json(result, out)
+    markdown = loadtest.to_markdown(result)
+    out.with_suffix(".md").write_text(markdown, encoding="utf-8")
+    print(f"wrote {out}", file=sys.stderr)
+    if not args.quiet:
+        print(markdown)
+    return 0
+
+
 def cmd_e2e(args: argparse.Namespace) -> int:
     import asyncio
     from datetime import UTC, datetime
@@ -339,6 +384,23 @@ def main(argv: list[str] | None = None) -> int:
         help="keep the policies' production timeouts (default: lifted)",
     )
     e2e.set_defaults(func=cmd_e2e)
+
+    lt = sub.add_parser(
+        "loadtest", help="Locust load test: guard off vs blocking vs as shipped (stub planner)"
+    )
+    lt.add_argument("--profiles", default="filters_off,async,blocking")
+    lt.add_argument("--users", default="1,2,4", help="concurrency levels (comma-separated)")
+    lt.add_argument("--duration", type=int, default=45, help="seconds per level")
+    lt.add_argument("--latency-ms", type=int, default=800, help="simulated LLM latency per planner call")
+    lt.add_argument("--port", type=int, default=8020)
+    lt.add_argument("--policies", default=str(DEFAULT_POLICIES))
+    lt.add_argument("--out", default="packages/eval/results/loadtest.json")
+    lt.add_argument("--quiet", action="store_true")
+    lt.set_defaults(func=cmd_loadtest)
+
+    res = sub.add_parser("results", help="regenerate docs/RESULTS.md from the committed result files")
+    res.add_argument("--out", default="docs/RESULTS.md")
+    res.set_defaults(func=cmd_results)
 
     cmp = sub.add_parser("compare", help="compare a run against a baseline and apply CI gates")
     cmp.add_argument("baseline")

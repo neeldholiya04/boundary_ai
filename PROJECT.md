@@ -269,8 +269,23 @@ Each phase below says **what** it delivered, **why** it mattered, and **how** we
   playground's attack mode replays recorded model answers (free) for built-in scenarios, and live
   runs go through rate limits and a daily spend cap. Details: [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).
 
-### Phases 11–12 — still to come (see [`PLAN.md`](docs/PLAN.md))
-- **11:** load testing and the final results write-up.
+### Phase 11 — Load test and the results write-up
+- **What:** a **load test** (Locust) of the agent with the guard off, as shipped, and with every check
+  blocking; a new end-to-end config with **every policy enforced**; and **`docs/RESULTS.md`**, which
+  holds every number we promised, each with the command that reproduces it.
+- **Why:** a guard is only worth shipping if you know what it costs. And the write-up has to match
+  the evidence, so it is generated from the committed result files, never typed by hand.
+- **How:** the load test swaps the LLM for a stub with a fixed delay, so it measures the guard and the
+  agent loop rather than a provider. It runs against its own database and records how long each
+  policy took.
+- **What we learned:**
+  - Enforcing every detector takes attack success to 0 of 5 (from 40% with no defence), at the same
+    benign cost as the shipped shadow + taint setup.
+  - On an 8.6 GB laptop, three transformer checks add about 5 s per request, because the models get
+    paged out and compete for the CPU. That sets the RAM requirement for deployment, and suggests
+    taking shadow checks off the request path.
+
+### Phase 12 — still to come (see [`PLAN.md`](docs/PLAN.md))
 - **12:** deployment, a public URL, and production monitoring (deliberately left for last).
 
 ---

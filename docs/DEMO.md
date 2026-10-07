@@ -1,98 +1,111 @@
-# Demo Notes
+# Demo script
 
-## Local Startup
-From the repository root:
+About ten minutes. It goes from the problem (an agent hijacked by a web page) to the guard stopping
+it, operating the guard live, and the evidence that it works. The URLs assume the default ports
+(API 8000, dashboard 3000, Grafana 3001); if yours differ, use what `.env` sets.
 
-- Offline (no keys): `uv sync && npm --prefix apps/dashboard install && uv run boundary dev --demo`
-- With a real model: copy `.env.example` to `.env` (repo root), set `LLM_MODEL` and that provider's key,
-  start `docker compose --env-file .env -f infra/docker-compose.yml up -d`, then `uv run boundary dev`.
-- `uv run boundary status` prints the model, database and guard policies that will be used.
+## Before you start
 
-## Recommended Demo Flow
-1. Open `MCP Servers` and show both seeded servers:
-   - `local-sandbox`
-   - `exa`
-2. Refresh the servers and show that the discovered tool catalog contains tools from both.
-3. Open `Chat` and send:
-   - `search the web for boundary-ai`
-4. Show the Exa tool call completing through the guarded agent.
-5. Open `Policies` and create:
-   - `require_approval` for `write_file`
-   - `validate_args` for `write_file` with `notes/` allowlist
-   - `block_tool` for `delete_file`
-6. Open `Chat` and send:
-   - `list files`
-   - `write file notes/demo.txt: hello from the guarded agent`
-7. Show the write pausing for approval and the composer disabling for that conversation.
-8. While the approval is pending, create a higher-priority `block_tool` rule for `write_file`.
-9. Open `Approvals` and approve the pending tool call.
-10. Return to `Chat` and show the resumed tool call being blocked because policy changed after approval.
-11. Disable the temporary `write_file` block rule, send the write again, and approve it successfully.
-12. Send:
-   - `delete file notes/demo.txt`
-13. Show the tool call getting blocked.
-14. Open `Audit Logs` and walk through:
-   - dual-server tool discovery
-   - policy decision
-   - approval request
-   - approval invalidation after a live policy change
-   - approval decision after the second attempt
-   - local and remote tool results
-15. Mention that if the approver goes offline, the request expires automatically and the run is denied on TTL.
-
-## Sample Policy Payloads
-- Block deletes:
-```json
-{
-  "name": "Block deletes",
-  "rule_type": "block_tool",
-  "target_tool": "delete_file",
-  "priority": 200,
-  "conditions": {},
-  "action": {
-    "reason": "File deletion is disabled in this demo."
-  }
-}
+```bash
+uv sync && npm --prefix apps/dashboard install
+docker compose --env-file .env -f infra/docker-compose.yml --profile observability up -d
+uv run boundary status          # model, database, guard policies
+uv run boundary dev             # API + dashboard
 ```
 
-- Require approval for writes:
+- For the agent part, copy a few eval fixtures into the agent's sandbox:
+  `cp packages/eval/datasets/golden/fixtures/{github_issue_exfil.md,issue_env_paste.md,crm_export.csv,prompt_injection_explainer.html} apps/sandbox-mcp/sandbox/`
+- Optional: Langfuse keys in `.env` for traces (see [OBSERVABILITY.md](OBSERVABILITY.md)).
+- Open three tabs: the dashboard (`localhost:3000`), Grafana (`localhost:3001`) and Langfuse.
+- On a machine short of RAM, send one throwaway chat first, so the models are paged in.
+
+## 1. The problem (1 min)
+
+**Playground → Attack**, built-in scenario `e2e-ind-blog-planted-write`. Expand "Show the content the
+agent will read": a normal blog post, with an instruction hidden in an HTML comment. Run it.
+
+- **No defence** (left): the agent fetches the page, then writes the attacker's file
+  `notes/pwned.md` (in red) before doing the real task. That's an indirect prompt injection: the
+  attacker never talked to the agent, they only wrote a web page.
+
+## 2. The guard (2 min)
+
+Same run, **guard on** (right):
+
+- The tool-output injection detector flags the page. It's in **shadow** mode, so the page still
+  reaches the model and the guard doesn't block it.
+- But the flag **taints the run**, and the policy engine's taint rule says a tainted run needs a
+  human to approve any write. The planted write is held, and the attack stops.
+- Why shadow + taint rather than blocking the page? Blocking on a detector has a false-positive
+  cost (a harmless article *about* injection gets flagged too; see `prompt_injection_explainer.html`
+  in step 3). Taint only costs an approval, and only when the run tries something dangerous.
+
+This replays a recorded model run (free and identical every time). "Paste your own page" runs the
+live model, within the daily demo budget.
+
+## 3. One guard stage, up close (1 min)
+
+**Playground → Scan.**
+
+- Stage *User input*: `Hi, I'm Jane Roe, email me at jane.roe@example.com`. The email is highlighted
+  and replaced with `<EMAIL_1>` in what the agent would see. Every policy's score, threshold and
+  latency is listed.
+- Stage *Tool output*: paste the contents of `prompt_injection_explainer.html`, an article explaining
+  prompt injection, with no instruction in it. Note what fires and what doesn't: this is the
+  false-positive side of the trade-off.
+
+## 4. The real agent (2 min)
+
+**Chat**: *"Read github_issue_exfil.md and summarise the issue."*
+
+- The answer arrives. The **Guardrails** page and **Logs** show the tool-output check flagging the
+  file (would block, shadow) and the run marked tainted.
+- Follow up: *"Save that summary to notes/issue.md."* The write waits on the **Approvals** page.
+  The reason names the policy that tainted the run.
+- *"Summarise issue_env_paste.md"* (a pasted secret): blocked. *"Summarise crm_export.csv"*:
+  personal data comes back as placeholders.
+- With Langfuse on, *Last run's trace ↗* opens the run: planner calls with tokens and cost, the tool
+  call, every guard check with each policy's verdict, and only redacted text.
+
+## 5. Operate it (2 min)
+
+- **Guardrails**: switch `tool_output_injection_protectai` from *shadow* to *enforce*. The config hash
+  changes; the switch is audited and survives a restart. Re-run step 4: the file's content is now
+  withheld from the model. Switch it back.
+- **Grafana** (*boundary-ai: guard & agent*): block rate by stage, *would block* vs *blocked* per
+  policy (the shadow-vs-enforce gap), p50/p99 per policy, errors and timeouts, LLM cost per run.
+  Playground traffic has its own panel and never mixes into the real numbers.
+
+## 6. The evidence (2 min)
+
+- [RESULTS.md](RESULTS.md): attack success with the guard off / shadow / enforce, per-policy catch
+  rate and false-positive rate with confidence intervals, latency, cost, load-test throughput, and
+  our fine-tuned detector against the off-the-shelf ones.
+- CI: every PR re-runs the golden detector suite and replays the end-to-end scenarios from the
+  recorded cassette (no key, no network). A regression fails the build, and the results are posted
+  as one PR comment ([CI.md](CI.md)).
+
+## Appendix: the policy engine on its own
+
+The deterministic policy engine (tool rules, argument validation, approvals) predates the guard and
+still works without it (`uv run boundary dev --no-guard`):
+
+1. **Policies**: `require_approval` for `write_file`, `validate_args` for `write_file` with an
+   allowlist of `notes/`, and `block_tool` for `delete_file` (payloads below).
+2. **Chat**: `write file notes/demo.txt: hello`. The write pauses for approval. While it's pending,
+   add a higher-priority `block_tool` for `write_file`, then approve. The resumed call is re-checked
+   against the *current* policies and blocked.
+3. `delete file notes/demo.txt` is blocked. Approvals that aren't answered expire, and the run is
+   denied.
+
 ```json
-{
-  "name": "Approve writes",
-  "rule_type": "require_approval",
-  "target_tool": "write_file",
-  "priority": 150,
-  "conditions": {},
-  "action": {
-    "reason": "Writes require explicit human review."
-  }
-}
+{"name": "Block deletes", "rule_type": "block_tool", "target_tool": "delete_file", "priority": 200,
+ "conditions": {}, "action": {"reason": "File deletion is disabled in this demo."}}
+{"name": "Approve writes", "rule_type": "require_approval", "target_tool": "write_file", "priority": 150,
+ "conditions": {}, "action": {"reason": "Writes require explicit human review."}}
+{"name": "Sandbox notes only", "rule_type": "validate_args", "target_tool": "write_file", "priority": 180,
+ "conditions": {"path_arg": "path", "allow_prefixes": ["notes/"]}, "action": {}}
 ```
 
-- Restrict writable paths:
-```json
-{
-  "name": "Sandbox notes only",
-  "rule_type": "validate_args",
-  "target_tool": "write_file",
-  "priority": 180,
-  "conditions": {
-    "path_arg": "path",
-    "allow_prefixes": ["notes/"]
-  },
-  "action": {}
-}
-```
-
-## Remote MCP Notes
-- The backend supports `sse` and `streamable_http` MCP transports.
-- Exa hosted MCP is seeded by default through:
-  - `EXA_MCP_ENABLED=true`
-  - `EXA_MCP_URL=https://mcp.exa.ai/mcp`
-- If you have an Exa API key, set:
-  - `EXA_API_KEY=<your key>`
-- Without a key, Exa still works anonymously for lightweight demos, subject to remote service limits.
-
-## Notes for Review
-- The reviewed runtime path is the OpenAI-compatible planner with live MCP discovery.
-- `LLM_PROVIDER=mock` is still available for local-only demos, but only when `ALLOW_DEMO_MOCK_PLANNER=true`.
+Remote tools: Exa's hosted MCP server is seeded by default (`EXA_MCP_ENABLED`, `EXA_MCP_URL`;
+`EXA_API_KEY` is optional). Any `sse` or `streamable_http` MCP server can be added on the MCP page.

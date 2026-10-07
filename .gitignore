@@ -17,6 +17,7 @@ htmlcov/
 !.env.example
 
 # App runtime data
+policies/.loadtest-*.yaml
 *.db
 *.sqlite3
 llm_cache.sqlite

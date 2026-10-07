@@ -1,0 +1,438 @@
+{
+  "schema_version": 1,
+  "meta": {
+    "stub_llm_latency_ms": 800,
+    "duration_s": 60,
+    "users": [
+      1,
+      2,
+      4
+    ],
+    "database": "postgres",
+    "machine": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "cpu_count": 8,
+      "memory_gb": 8.6,
+      "python": "3.12.13"
+    },
+    "elapsed_s": 706,
+    "generated_at": "2026-10-07T09:01:50Z"
+  },
+  "profiles": [
+    {
+      "profile": "filters_off",
+      "policy": "(none)",
+      "levels": [
+        {
+          "users": 1,
+          "requests": 28,
+          "failures": 0,
+          "rps": 0.482,
+          "p50_ms": 2100.0,
+          "p95_ms": 2100.0,
+          "p99_ms": 2200.0,
+          "avg_ms": 2075.6,
+          "failure_reasons": {},
+          "guard_errors": 0
+        },
+        {
+          "users": 2,
+          "requests": 54,
+          "failures": 0,
+          "rps": 0.936,
+          "p50_ms": 2100.0,
+          "p95_ms": 2200.0,
+          "p99_ms": 2500.0,
+          "avg_ms": 2136.8,
+          "failure_reasons": {},
+          "guard_errors": 0
+        },
+        {
+          "users": 4,
+          "requests": 104,
+          "failures": 0,
+          "rps": 1.757,
+          "p50_ms": 2200.0,
+          "p95_ms": 2800.0,
+          "p99_ms": 2800.0,
+          "avg_ms": 2275.5,
+          "failure_reasons": {},
+          "guard_errors": 0
+        }
+      ],
+      "policy_latency": []
+    },
+    {
+      "profile": "async",
+      "policy": "policies/guard.yaml",
+      "levels": [
+        {
+          "users": 1,
+          "requests": 8,
+          "failures": 0,
+          "rps": 0.136,
+          "p50_ms": 7000.0,
+          "p95_ms": 9100.0,
+          "p99_ms": 9100.0,
+          "avg_ms": 7354.9,
+          "failure_reasons": {},
+          "guard_errors": 0
+        },
+        {
+          "users": 2,
+          "requests": 19,
+          "failures": 0,
+          "rps": 0.274,
+          "p50_ms": 6000.0,
+          "p95_ms": 12000.0,
+          "p99_ms": 12000.0,
+          "avg_ms": 6715.2,
+          "failure_reasons": {},
+          "guard_errors": 7
+        },
+        {
+          "users": 4,
+          "requests": 20,
+          "failures": 2,
+          "rps": 0.319,
+          "p50_ms": 13000.0,
+          "p95_ms": 15000.0,
+          "p99_ms": 15000.0,
+          "avg_ms": 11660.9,
+          "failure_reasons": {
+            "run blocked": 2
+          },
+          "guard_errors": 3
+        }
+      ],
+      "policy_latency": [
+        {
+          "stage": "final_output",
+          "policy": "groundedness",
+          "execution": "async",
+          "n": 50,
+          "p50_ms": 2482.5,
+          "p90_ms": 5099.9,
+          "p99_ms": 6961.7,
+          "errors": 0
+        },
+        {
+          "stage": "final_output",
+          "policy": "toxicity",
+          "execution": "blocking",
+          "n": 49,
+          "p50_ms": 1288.6,
+          "p90_ms": 2557.3,
+          "p99_ms": 4099.8,
+          "errors": 0
+        },
+        {
+          "stage": "final_output",
+          "policy": "pii",
+          "execution": "blocking",
+          "n": 49,
+          "p50_ms": 26.5,
+          "p90_ms": 74.1,
+          "p99_ms": 173.9,
+          "errors": 0
+        },
+        {
+          "stage": "final_output",
+          "policy": "secrets",
+          "execution": "blocking",
+          "n": 49,
+          "p50_ms": 0.2,
+          "p90_ms": 0.4,
+          "p99_ms": 2.4,
+          "errors": 0
+        },
+        {
+          "stage": "tool_args",
+          "policy": "pii_egress",
+          "execution": "blocking",
+          "n": 49,
+          "p50_ms": 17.5,
+          "p90_ms": 210.1,
+          "p99_ms": 382.4,
+          "errors": 0
+        },
+        {
+          "stage": "tool_args",
+          "policy": "secrets",
+          "execution": "blocking",
+          "n": 49,
+          "p50_ms": 0.1,
+          "p90_ms": 0.3,
+          "p99_ms": 1.0,
+          "errors": 0
+        },
+        {
+          "stage": "tool_output",
+          "policy": "tool_output_injection_protectai",
+          "execution": "blocking",
+          "n": 49,
+          "p50_ms": 2176.9,
+          "p90_ms": 5791.2,
+          "p99_ms": 8666.2,
+          "errors": 8
+        },
+        {
+          "stage": "tool_output",
+          "policy": "pii",
+          "execution": "blocking",
+          "n": 49,
+          "p50_ms": 188.1,
+          "p90_ms": 316.6,
+          "p99_ms": 517.8,
+          "errors": 0
+        },
+        {
+          "stage": "tool_output",
+          "policy": "secrets",
+          "execution": "blocking",
+          "n": 49,
+          "p50_ms": 0.4,
+          "p90_ms": 0.6,
+          "p99_ms": 0.9,
+          "errors": 0
+        },
+        {
+          "stage": "tool_output",
+          "policy": "tool_output_injection_heuristic",
+          "execution": "blocking",
+          "n": 49,
+          "p50_ms": 0.3,
+          "p90_ms": 0.4,
+          "p99_ms": 0.5,
+          "errors": 0
+        },
+        {
+          "stage": "user_input",
+          "policy": "user_injection_promptguard",
+          "execution": "blocking",
+          "n": 51,
+          "p50_ms": 1570.1,
+          "p90_ms": 2529.6,
+          "p99_ms": 4283.7,
+          "errors": 2
+        },
+        {
+          "stage": "user_input",
+          "policy": "topic",
+          "execution": "blocking",
+          "n": 51,
+          "p50_ms": 238.2,
+          "p90_ms": 355.5,
+          "p99_ms": 620.5,
+          "errors": 0
+        },
+        {
+          "stage": "user_input",
+          "policy": "pii",
+          "execution": "blocking",
+          "n": 51,
+          "p50_ms": 21.7,
+          "p90_ms": 62.9,
+          "p99_ms": 83.5,
+          "errors": 0
+        },
+        {
+          "stage": "user_input",
+          "policy": "jailbreak_patterns",
+          "execution": "blocking",
+          "n": 51,
+          "p50_ms": 0.1,
+          "p90_ms": 0.2,
+          "p99_ms": 0.3,
+          "errors": 0
+        }
+      ]
+    },
+    {
+      "profile": "blocking",
+      "policy": "policies/.loadtest-blocking.yaml",
+      "levels": [
+        {
+          "users": 1,
+          "requests": 7,
+          "failures": 0,
+          "rps": 0.126,
+          "p50_ms": 7100.0,
+          "p95_ms": 13000.0,
+          "p99_ms": 13000.0,
+          "avg_ms": 7966.0,
+          "failure_reasons": {},
+          "guard_errors": 0
+        },
+        {
+          "users": 2,
+          "requests": 16,
+          "failures": 0,
+          "rps": 0.261,
+          "p50_ms": 7400.0,
+          "p95_ms": 12000.0,
+          "p99_ms": 12000.0,
+          "avg_ms": 7499.1,
+          "failure_reasons": {},
+          "guard_errors": 3
+        },
+        {
+          "users": 4,
+          "requests": 22,
+          "failures": 1,
+          "rps": 0.331,
+          "p50_ms": 12000.0,
+          "p95_ms": 14000.0,
+          "p99_ms": 19000.0,
+          "avg_ms": 11498.0,
+          "failure_reasons": {
+            "run blocked": 1
+          },
+          "guard_errors": 1
+        }
+      ],
+      "policy_latency": [
+        {
+          "stage": "final_output",
+          "policy": "groundedness",
+          "execution": "blocking",
+          "n": 47,
+          "p50_ms": 2272.6,
+          "p90_ms": 3516.3,
+          "p99_ms": 8692.7,
+          "errors": 0
+        },
+        {
+          "stage": "final_output",
+          "policy": "toxicity",
+          "execution": "blocking",
+          "n": 47,
+          "p50_ms": 1543.7,
+          "p90_ms": 2336.8,
+          "p99_ms": 3513.2,
+          "errors": 0
+        },
+        {
+          "stage": "final_output",
+          "policy": "pii",
+          "execution": "blocking",
+          "n": 47,
+          "p50_ms": 28.6,
+          "p90_ms": 50.6,
+          "p99_ms": 130.8,
+          "errors": 0
+        },
+        {
+          "stage": "final_output",
+          "policy": "secrets",
+          "execution": "blocking",
+          "n": 47,
+          "p50_ms": 0.1,
+          "p90_ms": 0.5,
+          "p99_ms": 1.2,
+          "errors": 0
+        },
+        {
+          "stage": "tool_args",
+          "policy": "pii_egress",
+          "execution": "blocking",
+          "n": 47,
+          "p50_ms": 14.5,
+          "p90_ms": 43.5,
+          "p99_ms": 88.1,
+          "errors": 0
+        },
+        {
+          "stage": "tool_args",
+          "policy": "secrets",
+          "execution": "blocking",
+          "n": 47,
+          "p50_ms": 0.1,
+          "p90_ms": 0.2,
+          "p99_ms": 0.3,
+          "errors": 0
+        },
+        {
+          "stage": "tool_output",
+          "policy": "tool_output_injection_protectai",
+          "execution": "blocking",
+          "n": 47,
+          "p50_ms": 2233.6,
+          "p90_ms": 3783.2,
+          "p99_ms": 5770.2,
+          "errors": 3
+        },
+        {
+          "stage": "tool_output",
+          "policy": "pii",
+          "execution": "blocking",
+          "n": 47,
+          "p50_ms": 173.6,
+          "p90_ms": 289.2,
+          "p99_ms": 493.0,
+          "errors": 0
+        },
+        {
+          "stage": "tool_output",
+          "policy": "secrets",
+          "execution": "blocking",
+          "n": 47,
+          "p50_ms": 0.4,
+          "p90_ms": 0.6,
+          "p99_ms": 0.7,
+          "errors": 0
+        },
+        {
+          "stage": "tool_output",
+          "policy": "tool_output_injection_heuristic",
+          "execution": "blocking",
+          "n": 47,
+          "p50_ms": 0.3,
+          "p90_ms": 0.4,
+          "p99_ms": 0.8,
+          "errors": 0
+        },
+        {
+          "stage": "user_input",
+          "policy": "user_injection_promptguard",
+          "execution": "blocking",
+          "n": 48,
+          "p50_ms": 1537.3,
+          "p90_ms": 2271.5,
+          "p99_ms": 3813.9,
+          "errors": 0
+        },
+        {
+          "stage": "user_input",
+          "policy": "topic",
+          "execution": "blocking",
+          "n": 48,
+          "p50_ms": 265.3,
+          "p90_ms": 485.7,
+          "p99_ms": 1341.9,
+          "errors": 1
+        },
+        {
+          "stage": "user_input",
+          "policy": "pii",
+          "execution": "blocking",
+          "n": 48,
+          "p50_ms": 18.4,
+          "p90_ms": 70.1,
+          "p99_ms": 115.5,
+          "errors": 0
+        },
+        {
+          "stage": "user_input",
+          "policy": "jailbreak_patterns",
+          "execution": "blocking",
+          "n": 48,
+          "p50_ms": 0.1,
+          "p90_ms": 0.1,
+          "p99_ms": 0.7,
+          "errors": 0
+        }
+      ]
+    }
+  ]
+}

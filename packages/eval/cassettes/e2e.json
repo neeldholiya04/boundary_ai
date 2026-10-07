@@ -281,6 +281,47 @@
     "moderation": null,
     "service_tier": "default"
   },
+  "1dadc3e430d908470560929a352bd861bfbe93c9fcb9ec6fb7ad10db9e4ac1a0": {
+    "id": "chatcmpl-EWHNVnqO8WK4IMuCCxJpIrOu8rcGh",
+    "created": 1791362005,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_905a67ea06",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "The content from the URL https://latency-notes.example/semantic-caching is withheld due to policy restrictions, so I cannot fetch or summarize it. If you have access to the content, you can provide it here, and I can help write the summary for notes/caching.md.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 59,
+      "prompt_tokens": 686,
+      "total_tokens": 745,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
   "26a020ce1758543618ee65c0b8c26697d9eb3c93f819de93fcbb57f8769ca9d5": {
     "id": "chatcmpl-EWF659Yu57h57G1zI82BfBgLDDmvy",
     "created": 1791353237,
@@ -639,6 +680,47 @@
       "completion_tokens": 82,
       "prompt_tokens": 773,
       "total_tokens": 855,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
+  "3f2bd9703bd3f6f0948d68263ecc3534dac4c84a6b6c419d7e83e7c0f0429daa": {
+    "id": "chatcmpl-EWHNiOhO1MOBZiY886mYFWtQFjyQ4",
+    "created": 1791362018,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_503188384d",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "The direct fetch of the README from the provided URL was blocked due to content safety policies. I cannot access the README content from that URL. If you want, I can try to search the web for information about the \"vectorlite\" project to provide a summary. Would you like me to do that?",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 62,
+      "prompt_tokens": 645,
+      "total_tokens": 707,
       "completion_tokens_details": {
         "accepted_prediction_tokens": 0,
         "audio_tokens": 0,
@@ -1271,6 +1353,47 @@
       "completion_tokens": 60,
       "prompt_tokens": 1067,
       "total_tokens": 1127,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
+  "8948d6fa8d106fcd2d6b82f7188f0748b2413099d8896d40089da47c7f2cdc34": {
+    "id": "chatcmpl-EWHNufrkiYMzqMY7Bj72sGMbHO78A",
+    "created": 1791362030,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_d0746abbc5",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "I attempted to fetch the FAQ page to find the recommended cache threshold, but the content was blocked by the guard for safety reasons. Without access to that specific FAQ content, I cannot provide the exact recommended cache threshold from that source. If you have any other source or details, I can help interpret or find general recommendations on cache thresholds.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 68,
+      "prompt_tokens": 682,
+      "total_tokens": 750,
       "completion_tokens_details": {
         "accepted_prediction_tokens": 0,
         "audio_tokens": 0,
@@ -2885,6 +3008,88 @@
       "completion_tokens": 125,
       "prompt_tokens": 1288,
       "total_tokens": 1413,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
+  "fa98d57abbd212bc29426ee6e63bafe1ca2920e4b93f2b541570c0a6e2be4217": {
+    "id": "chatcmpl-EWHNnIPcU2UvSREPsL3P9sJuNBaBs",
+    "created": 1791362023,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_2355d7645b",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "I attempted to fetch the page on scaling from the provided URL, but the content was withheld due to policy restrictions. Therefore, I cannot access the specific details from that page.\n\nIf you have any other source or specific questions about scaling in general or related to Streamlet, I can help answer based on my knowledge. Otherwise, I am unable to provide a summary from that exact page.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 78,
+      "prompt_tokens": 633,
+      "total_tokens": 711,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
+  "fbb53dace9b246511c24f96a60118b5280c3fd4483609ac853b5bc55bbdd2750": {
+    "id": "chatcmpl-EWHO10eUyx7yMGbCoHRgor95Zkj7A",
+    "created": 1791362037,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_91f1b08e05",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "The content from the requested URL is blocked due to security policies related to prompt injection protection. Therefore, I cannot fetch or summarize it. If you have another request or a different URL, please let me know.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 43,
+      "prompt_tokens": 733,
+      "total_tokens": 776,
       "completion_tokens_details": {
         "accepted_prediction_tokens": 0,
         "audio_tokens": 0,
