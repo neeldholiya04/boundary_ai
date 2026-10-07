@@ -16,8 +16,7 @@ from typing import Any
 import yaml
 
 from boundary_eval.dataset import load_records
-from boundary_eval.runner import run_detectors, to_result
-from boundary_guard import Guard
+from boundary_eval.runner import eval_guard, run_detectors, to_result
 
 BASELINES = {
     "ours": None,  # filled with the model path
@@ -89,6 +88,6 @@ def evaluate(
     with tempfile.TemporaryDirectory() as tmp:
         policy_file = Path(tmp) / "eval.yaml"
         policy_file.write_text(yaml.safe_dump(config), encoding="utf-8")
-        guard = Guard.from_yaml(policy_file)
+        guard = eval_guard(policy_file)
         run = asyncio.run(run_detectors(guard, records, suite="tool-output-injection"))
     return to_result(run)

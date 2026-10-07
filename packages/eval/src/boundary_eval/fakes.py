@@ -89,6 +89,13 @@ GENERATORS: dict[str, Callable[[random.Random], str]] = {
     # Unconstrained on purpose: unlike issued keys above, nothing guarantees a vendor token mixes
     # cases and digits, so the generic rules are measured on what they can and can't see.
     "opaque_token": lambda r: _pick(r, _ALNUM, 40),
+    # Evasions: a key hidden as base64 (inside an .env line) or spelled out with spaces.
+    # The plaintext is a sentence (it has spaces), so only decoding finds the key: a bare key's base64
+    # would itself look like a random token to the high-entropy rules.
+    "openai_b64": lambda r: base64.b64encode(
+        f"export OPENAI_API_KEY=sk-proj-{_mixed(r, 40)} # prod".encode()
+    ).decode(),
+    "openai_spaced": lambda r: " ".join("sk-proj-" + _mixed(r, 24)),
     "anthropic": lambda r: "sk-ant-api03-" + _pick(r, _B64URL, 93) + "AA",
     "google": lambda r: "AIza" + _pick(r, _B64URL, 35),
     "slack": lambda r: (

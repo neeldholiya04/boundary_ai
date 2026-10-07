@@ -501,6 +501,8 @@ _SECRET_KINDS = [
     "gitlab",
     "npm",
     "opaque_token",
+    "openai_b64",
+    "openai_spaced",
 ]
 _SECRET_TEMPLATES: dict[str, list[str]] = {
     "user_input": [
