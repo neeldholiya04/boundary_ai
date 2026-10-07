@@ -4,7 +4,7 @@
 # This is the production set: the enforced detectors plus cheap regex baselines in shadow. Detectors kept only for comparison live in policies/experiments/ so they don't add
 # latency here. Thresholds are tuned on the dev split at a ≤2% dev false-positive budget
 # (`boundary-eval tune <result> --max-fpr 0.02`); see docs/EVAL.md for the sweep.
-version: 5
+version: 6
 
 defaults:
   timeout_ms: 400
@@ -95,6 +95,11 @@ policies:
     detector: &secrets
       type: regex_rules
       ruleset: rules/secrets.v2.yaml
+      # A key hidden as base64 or spelled out with spaces is found in the decoded text.
+      decode: [base64, spaced]
+      # This deployment's own credentials must never appear, whatever their format. Values are read
+      # from these env vars at startup and held in memory only.
+      known_secrets_env: ["*_API_KEY", "*_SECRET_KEY", "*_SECRET", "*_TOKEN", "*_PASSWORD"]
     action: redact
 
   - id: secrets_egress

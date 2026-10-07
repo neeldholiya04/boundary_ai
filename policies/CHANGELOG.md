@@ -4,6 +4,28 @@ Every change to `guard.yaml`, a ruleset, or a schema bumps `version` in `guard.y
 and gets an entry here. Eval results are stamped with the config hash, so each entry
 should say which numbers it is expected to move.
 
+## v6
+- `secrets` / `secrets_egress` scan **decoded views**: base64 runs (standard or URL-safe, also after
+  `NAME=`, and base64 of base64) that decode to text, and keys spelled out with spaces (`s k - p r o j
+  …`). A hit redacts or blocks the encoded run (trimmed to its letters and digits, so JSON and tables
+  stay intact). Work is bounded by decoded characters (256k per check), not by candidate count, so
+  hundreds of UUIDs can't push a key out of reach; past the budget the check fails closed.
+- **Known secrets**: the values of this deployment's own credentials (env vars matching `*_API_KEY`,
+  `*_SECRET_KEY`, `*_SECRET`, `*_TOKEN`, `*_PASSWORD`) never appear in a request, tool call, tool output
+  or answer, raw, URL-encoded, JSON-escaped, spaced out or base64'd. Values must be 12+ characters with
+  entropy ≥ 3.5 (template defaults like `boundary-local` are skipped and logged by name), `NEXT_PUBLIC_`
+  style variables are ignored, and matches are whole tokens only. Values live in memory only; the config
+  hash covers the name patterns, not the values. Known secrets are never checked for the public
+  playground (it would confirm guesses), and evals load the policy without them (`eval_guard`), so
+  numbers don't depend on whose machine runs them.
+- Eval: 3 golden evasion records and two evasion kinds in `synthetic_secrets` (210 records). On test,
+  v2 without → with decoding: golden 88.2% → 100% (17 / 53), extended 92.5% → 100% (93 / 1,135), FPR 0%.
+- Known limits: base64 wrapped across lines, characters separated by more than one space or by commas,
+  and a decoded blob that merely *mentions* an assignment (`api_key: …`) replaces the whole blob.
+- Expected movement: the evasion records are new negatives for the other policies and expose
+  `toxicity` firing on character soup (the spaced-out key), so such an answer is blocked by toxicity
+  rather than redacted by secrets. Tracked for the toxicity retune.
+
 ## v5
 - **Secrets, after a live leak.** A user pasted a short `sk-proj-` key into chat; it was stored raw,
   written to `.env`, read back by a file search and printed in the answer, and `secrets` scored 0.0 at
