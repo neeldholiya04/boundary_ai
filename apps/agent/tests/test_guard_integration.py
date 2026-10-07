@@ -620,3 +620,89 @@ async def test_no_guard_keeps_the_original_behaviour(session, tmp_path):
     assert response.status == "completed"
     assert planner.seen[1]["results"] == [{"content": "x"}]
     assert (await session.scalars(select(GuardDecision))).all() == []
+
+
+# ---- rules written in the dashboard ---------------------------------------------------------------
+
+
+async def test_tool_call_rule_sends_every_call_to_that_tool_for_approval(session, tmp_path):
+    from boundary_agent.rules import RuleSpec, compile_rule
+
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [],
+        plan(call("web_search", query="q"), call("send_email", to="a@b.example", body="hi"), answer("done")),
+        {"web_search": {"results": []}, "send_email": {"sent": True}},
+    )
+    rule = RuleSpec.model_validate(
+        {
+            "name": "Approve emails",
+            "stages": ["tool_args"],
+            "tools": ["send_email"],
+            "check": {"type": "always"},
+            "action": "escalate",
+            "mode": "enforce",
+        }
+    )
+    runtime.guard.guard.add_policy(compile_rule(rule, "rule_approve_emails"))
+
+    response = await runtime.handle_chat(session, "search, then email the result", None)
+
+    assert response.status == "waiting_approval"
+    assert "rule_approve_emails" in response.assistant_message
+    assert [name for name, _ in mcp.calls] == ["web_search"]  # the search wasn't held, the email was
+
+
+async def test_tool_output_rule_can_taint_the_run(session, tmp_path):
+    from boundary_agent.rules import RuleSpec, compile_rule
+
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [],
+        plan(call("fetch_url", url="https://x.example"), call("write_file", path="notes/a.md", content="x")),
+        {"fetch_url": {"content": "pricing sheet for ACME-INTERNAL partners"}, "write_file": {"ok": True}},
+    )
+    session.add(taint_rule())
+    await session.flush()
+    rule = RuleSpec.model_validate(
+        {
+            "name": "Internal docs",
+            "stages": ["tool_output"],
+            "check": {"type": "keywords", "keywords": ["ACME-INTERNAL"]},
+            "action": "flag",
+            "taints_run": True,
+        }
+    )
+    runtime.guard.guard.add_policy(compile_rule(rule, "rule_internal_docs"))
+
+    response = await runtime.handle_chat(session, "read the page and save notes", None)
+
+    assert response.status == "waiting_approval"
+    run = await session.get(Run, response.run_id)
+    assert run.tainted and "rule_internal_docs (shadow)" in run.taint_reason
+    assert [name for name, _ in mcp.calls] == ["fetch_url"]
+
+
+async def test_user_input_rule_escalates_to_content_review(session, tmp_path):
+    from boundary_agent.rules import RuleSpec, compile_rule
+
+    runtime, planner, _, _ = await setup(session, tmp_path, [], plan(answer("done")), {})
+    rule = RuleSpec.model_validate(
+        {
+            "name": "Review refund requests",
+            "stages": ["user_input"],
+            "check": {"type": "keywords", "keywords": ["refund"]},
+            "action": "escalate",
+            "mode": "enforce",
+        }
+    )
+    runtime.guard.guard.add_policy(compile_rule(rule, "rule_review_refunds"))
+
+    response = await runtime.handle_chat(session, "please process my refund", None)
+
+    assert response.status == "waiting_approval"
+    approval = await session.get(ApprovalRequest, response.approval_request_id)
+    assert (approval.kind, approval.stage) == ("content_review", "user_input")
+    assert planner.seen == []

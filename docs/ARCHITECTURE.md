@@ -89,6 +89,45 @@ A policy's **mode** can be changed while the agent runs, from the Guardrails das
 The A/B form of the delta (attack-success and utility under shadow vs enforced) comes from the
 end-to-end harness: `boundary-eval e2e --config shadow --config filters_taint`.
 
+## Guard rules: policies written in the dashboard
+
+`policies/guard.yaml` is the reviewed baseline (secrets, PII, injection, toxicity, ...), measured in CI.
+A **rule** is a policy an operator adds on top while the app runs, from the Guardrails page or
+`/api/guard/rules`. A rule says:
+
+| | Options |
+|---|---|
+| where | any of the four stages; on tool stages, optionally only some tools (`tools`) |
+| what it checks | `keywords` (whole words, any case), `pattern` (regexes; a 0.25 s search budget per check, repetition counts capped), `topic` (example requests, compared by meaning with the shipped topic model), `llm_judge` (a policy in plain words, judged by an LLM), `always` (every call: tool rules) |
+| what happens | flag, redact (keywords/pattern only), escalate to a human, block; tool-output rules can also taint the run (in shadow too, like the injection detectors) |
+| mode | off / shadow (the default for a new rule) / enforce |
+
+Each rule compiles (`apps/agent/src/boundary_agent/rules.py`) into one guard policy, `rule_<slug>`, added
+to the running guard with `Guard.add_policy`: same pipeline, decision log, stats, metrics and config hash
+as the file's policies. File policies can't be replaced or removed by a rule, only switched off.
+Rules are stored in `guard_rules` (the spec as written, plus a version), reloaded at startup (a rule that
+fails to load is reported on the page, the rest still run), and every change is audited with the full
+spec (`guard.rule_created|updated|deleted`), which is each rule's history.
+
+A rule carries its own examples (`should_fire` / `should_pass`). **Test** (`POST /api/guard/rules/test`)
+runs a draft against them and against the eval set's benign records at the rule's stages, and reports
+the would-fire rate on that clean traffic, before anything is stored. `GET /api/guard/rules/export` writes
+the active rules as a policy-file fragment, so a rule that proved itself can be reviewed into
+`guard.yaml` and measured in CI like the rest.
+
+This also replaces the old split between "tool rules" and "content rules": "every `send_email` needs
+approval" is a tool-args rule with `always` and `escalate`, through the existing approval flow. The
+policy engine's own rules (path allowlists, budgets, the taint → approval link) keep working as before.
+
+Notes:
+- An `llm_judge` rule sends the checked text to the judge model's provider (by default the one the
+  agent uses; a rule may only name models in `GUARD_JUDGE_MODELS`), costs one call per 12k-character
+  chunk, and fails closed if the judge errors or returns something that isn't a verdict. Start it in
+  shadow or async. Judged dry runs take at most 10 examples and are rate limited.
+- Each rule's history (the audit log) keeps the full spec, including its keywords: treat it like the
+  rules themselves. Matches of keyword and pattern rules are left out of stored excerpts.
+- Rules are created on the admin host only; the public playground can't reach these endpoints.
+
 ## Async checks
 
 Slow checks (e.g. groundedness) run with `execution: async`: the blocking result returns immediately

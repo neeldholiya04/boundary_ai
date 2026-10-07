@@ -203,3 +203,36 @@ async def test_groundedness_flags_unsupported_claims():
     invented = await d.detect("Release 0.4.2 adds GPU acceleration.", CheckContext(references=ref))
     assert not faithful.triggered
     assert invented.triggered
+
+
+@needs(MINILM)
+async def test_topic_with_inline_exemplars_for_a_dashboard_rule():
+    # A rule written in the dashboard: deny examples inline, the shipped purpose list as the allow side.
+    from boundary_guard.core.detector import build_detector
+
+    d = build_detector(
+        "embeddings_topic",
+        {
+            "model": MINILM[0],
+            "revision": MINILM[1],
+            "deny_exemplars": [
+                "What do our competitors charge per seat?",
+                "Compare Acme's pricing with ours",
+            ],
+            "allow": "topics/research.v2.yaml",
+        },
+        POLICIES,
+    )
+    assert (await d.detect("How much does Acme charge for its enterprise plan?", CheckContext())).triggered
+    assert not (await d.detect("Summarise the release notes for tinycache 0.9.4", CheckContext())).triggered
+    other = build_detector(
+        "embeddings_topic",
+        {
+            "model": MINILM[0],
+            "revision": MINILM[1],
+            "deny_exemplars": ["x"],
+            "allow": "topics/research.v2.yaml",
+        },
+        POLICIES,
+    )
+    assert d.fingerprint() != other.fingerprint()

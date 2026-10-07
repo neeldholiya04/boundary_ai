@@ -164,19 +164,43 @@ class GuardAdapter:
         self.guard = guard
         self.audit_logger = audit_logger
         self.telemetry = telemetry
-        labels = set(taint_labels or ["injection"])
-        # Policies whose matches are sensitive and get redacted in stored excerpts.
-        self.sensitive_policies = {
+        self.taint_labels = set(taint_labels or ["injection"])
+        self._sets_for: str | None = None
+        self._sensitive: set[str] = set()
+        self._taint: set[str] = set()
+
+    def _refresh(self) -> None:
+        # Rules added in the dashboard change the policy set at runtime: recompute when the config does.
+        if self._sets_for == self.guard.config_hash:
+            return
+        policies = self.guard.config.policies
+        # Operator rules that match words or patterns are usually about sensitive terms (codenames,
+        # account numbers), so their matches are kept out of stored excerpts whatever the rule does.
+        self._sensitive = {
             p.id
-            for p in guard.config.policies
-            if p.action is Action.REDACT or {"pii", "secret"}.intersection(p.detects)
+            for p in policies
+            if p.action is Action.REDACT
+            or {"pii", "secret"}.intersection(p.detects)
+            or p.detector.type in {"keywords", "pattern"}
         }
-        # Tool-output policies whose firing (enforced or shadow) taints the run.
-        self.taint_policies = {
+        self._taint = {
             p.id
-            for p in guard.config.policies
-            if Stage.TOOL_OUTPUT in p.stages and labels.intersection(p.detects)
+            for p in policies
+            if Stage.TOOL_OUTPUT in p.stages and self.taint_labels.intersection(p.detects)
         }
+        self._sets_for = self.guard.config_hash
+
+    @property
+    def sensitive_policies(self) -> set[str]:
+        """Policies whose matches are sensitive and get redacted in stored excerpts."""
+        self._refresh()
+        return self._sensitive
+
+    @property
+    def taint_policies(self) -> set[str]:
+        """Tool-output policies whose firing (enforced or shadow) taints the run."""
+        self._refresh()
+        return self._taint
 
     async def check(
         self,

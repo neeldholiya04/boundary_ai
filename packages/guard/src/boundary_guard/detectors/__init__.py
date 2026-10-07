@@ -8,7 +8,10 @@ from boundary_guard.detectors import (
     embeddings_topic,
     hf_classifier,
     json_schema,
+    keywords,
+    llm_judge,
     nli_groundedness,
+    pattern,
     presidio_pii,
     regex_rules,
 )
@@ -17,7 +20,10 @@ __all__ = [
     "embeddings_topic",
     "hf_classifier",
     "json_schema",
+    "keywords",
+    "llm_judge",
     "nli_groundedness",
+    "pattern",
     "presidio_pii",
     "regex_rules",
 ]
