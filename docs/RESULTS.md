@@ -34,35 +34,35 @@ records of that kind for the policy. Latency is per check on this machine (see c
 
 | Policy | Stage(s) | Mode | Catch rate (95% CI) | FPR (95% CI) | Pos / Neg | p50 / p99 ms | $/1k |
 |---|---|---|---|---|---|---|---|
-| `user_injection_promptguard` | user_input | enforce | 82.5% [76–87] | 0.0% [0–2] | 177 / 203 | 40 / 330 | 0.00 |
-| `jailbreak_patterns` | user_input | shadow | 31.6% [25–39] | 0.0% [0–2] | 177 / 203 | 0.0 / 0.7 | 0.00 |
-| `topic` | user_input | enforce | – | 1.9% [0–10] | 0 / 53 | 9.7 / 26 | 0.00 |
-| `tool_output_injection_protectai` | tool_output | shadow | 35.5% [30–42] | 10.8% [7–16] | 234 / 166 | 41 / 52 | 0.00 |
+| `user_injection_promptguard` | user_input | enforce | 82.5% [76–87] | 0.0% [0–2] | 177 / 203 | 57 / 539 | 0.00 |
+| `jailbreak_patterns` | user_input | shadow | 31.6% [25–39] | 0.0% [0–2] | 177 / 203 | 0.0 / 0.9 | 0.00 |
+| `topic` | user_input | enforce | – | 0.0% [0–7] | 0 / 53 | 13 / 34 | 0.00 |
+| `tool_output_injection_protectai` | tool_output | shadow | 35.5% [30–42] | 12.0% [8–18] | 234 / 166 | 42 / 59 | 0.00 |
 | `tool_output_injection_heuristic` | tool_output | shadow | 23.1% [18–29] | 0.0% [0–2] | 234 / 166 | 0.0 / 0.0 | 0.00 |
-| `secrets` | user_input, tool_output, final_output | enforce | 100.0% [95–100] | 0.0% [0–0] | 70 / 1095 | 0.1 / 1.2 | 0.00 |
+| `secrets` | user_input, tool_output, final_output | enforce | 100.0% [95–100] | 0.0% [0–0] | 70 / 1095 | 0.1 / 1.7 | 0.00 |
 | `secrets_egress` | tool_args | enforce | 100.0% [86–100] | 0.0% [0–9] | 23 / 40 | 0.0 / 0.1 | 0.00 |
-| `pii` | user_input, tool_output, final_output | enforce | 87.8% [83–91] | 0.0% [0–0] | 254 / 911 | 9.1 / 104 | 0.00 |
-| `pii_egress` | tool_args | enforce | 68.2% [47–84] | 0.0% [0–9] | 22 / 41 | 2.9 / 6.3 | 0.00 |
+| `pii` | user_input, tool_output, final_output | enforce | 87.8% [83–91] | 0.0% [0–0] | 254 / 911 | 10 / 142 | 0.00 |
+| `pii_egress` | tool_args | enforce | 68.2% [47–84] | 0.0% [0–9] | 22 / 41 | 3.9 / 6.8 | 0.00 |
 | `research_note_schema` | final_output | enforce | – | – | 0 / 0 | – / – | 0.00 |
-| `toxicity` | final_output | enforce | 81.9% [73–88] | 1.4% [1–3] | 94 / 291 | 20 / 34 | 0.00 |
-| `groundedness` | final_output | shadow (async) | 94.3% [86–98] | 88.6% [79–94] | 70 / 70 | 433 / 1059 | 0.00 |
+| `toxicity` | final_output | enforce | 81.9% [73–88] | 1.0% [0–3] | 94 / 291 | 26 / 49 | 0.00 |
+| `groundedness` | final_output | shadow (async) | 94.3% [86–98] | 88.6% [79–94] | 70 / 70 | 504 / 1315 | 0.00 |
 
 Golden set (hand-written, includes the hardest cases), test split:
 
 | Policy | Stage(s) | Mode | Catch rate (95% CI) | FPR (95% CI) | Pos / Neg | p50 / p99 ms | $/1k |
 |---|---|---|---|---|---|---|---|
-| `user_injection_promptguard` | user_input | enforce | 83.3% [44–97] | 16.7% [5–45] | 6 / 12 | 34 / 48 | 0.00 |
-| `jailbreak_patterns` | user_input | shadow | 16.7% [3–56] | 8.3% [1–35] | 6 / 12 | 0.0 / 0.0 | 0.00 |
-| `topic` | user_input | enforce | 100.0% [21–100] | 5.9% [1–27] | 1 / 17 | 8.0 / 12 | 0.00 |
-| `tool_output_injection_protectai` | tool_output | shadow | 40.0% [17–69] | 52.9% [31–74] | 10 / 17 | 44 / 509 | 0.00 |
-| `tool_output_injection_heuristic` | tool_output | shadow | 20.0% [6–51] | 5.9% [1–27] | 10 / 17 | 0.0 / 0.4 | 0.00 |
-| `secrets` | user_input, tool_output, final_output | enforce | 100.0% [76–100] | 0.0% [0–7] | 12 / 48 | 0.1 / 1.9 | 0.00 |
-| `secrets_egress` | tool_args | enforce | 100.0% [57–100] | 0.0% [0–43] | 5 / 5 | 0.0 / 0.3 | 0.00 |
-| `pii` | user_input, tool_output, final_output | enforce | 100.0% [51–100] | 0.0% [0–6] | 4 / 56 | 7.2 / 180 | 0.00 |
-| `pii_egress` | tool_args | enforce | 100.0% [21–100] | 0.0% [0–30] | 1 / 9 | 3.1 / 8.9 | 0.00 |
-| `research_note_schema` | final_output | enforce | 100.0% [21–100] | 0.0% [0–79] | 1 / 1 | 0.1 / 0.2 | 0.00 |
-| `toxicity` | final_output | enforce | 50.0% [9–91] | 7.7% [1–33] | 2 / 13 | 19 / 31 | 0.00 |
-| `groundedness` | final_output | shadow (async) | 100.0% [34–100] | 0.0% [0–79] | 2 / 1 | 42 / 43 | 0.00 |
+| `user_injection_promptguard` | user_input | enforce | 83.3% [44–97] | 16.7% [5–45] | 6 / 12 | 57 / 83 | 0.00 |
+| `jailbreak_patterns` | user_input | shadow | 16.7% [3–56] | 8.3% [1–35] | 6 / 12 | 0.0 / 0.1 | 0.00 |
+| `topic` | user_input | enforce | 100.0% [21–100] | 5.9% [1–27] | 1 / 17 | 11 / 18 | 0.00 |
+| `tool_output_injection_protectai` | tool_output | shadow | 40.0% [17–69] | 52.9% [31–74] | 10 / 17 | 74 / 688 | 0.00 |
+| `tool_output_injection_heuristic` | tool_output | shadow | 20.0% [6–51] | 5.9% [1–27] | 10 / 17 | 0.0 / 0.5 | 0.00 |
+| `secrets` | user_input, tool_output, final_output | enforce | 100.0% [76–100] | 0.0% [0–7] | 12 / 48 | 0.1 / 2.0 | 0.00 |
+| `secrets_egress` | tool_args | enforce | 100.0% [57–100] | 0.0% [0–43] | 5 / 5 | 0.1 / 0.3 | 0.00 |
+| `pii` | user_input, tool_output, final_output | enforce | 100.0% [51–100] | 0.0% [0–6] | 4 / 56 | 8.0 / 190 | 0.00 |
+| `pii_egress` | tool_args | enforce | 100.0% [21–100] | 0.0% [0–30] | 1 / 9 | 3.9 / 10 | 0.00 |
+| `research_note_schema` | final_output | enforce | 100.0% [21–100] | 0.0% [0–79] | 1 / 1 | 0.1 / 0.3 | 0.00 |
+| `toxicity` | final_output | enforce | 50.0% [9–91] | 0.0% [0–23] | 2 / 13 | 28 / 58 | 0.00 |
+| `groundedness` | final_output | shadow (async) | 100.0% [34–100] | 0.0% [0–79] | 2 / 1 | 72 / 91 | 0.00 |
 
 Reproduce: `uv run boundary-eval detectors --suite extended` and `--suite golden --repeats 20`.
 
@@ -70,10 +70,10 @@ Reproduce: `uv run boundary-eval detectors --suite extended` and `--suite golden
 
 | Stage | Checks timed | p50 ms | p95 ms | p99 ms |
 |---|---|---|---|---|
-| user_input | 560 | 35 | 47 | 48 |
-| tool_args | 300 | 3.2 | 9.1 | 9.2 |
-| tool_output | 780 | 44 | 215 | 509 |
-| final_output | 480 | 19 | 31 | 32 |
+| user_input | 560 | 57 | 78 | 83 |
+| tool_args | 300 | 4.1 | 9.7 | 11 |
+| tool_output | 780 | 74 | 333 | 690 |
+| final_output | 480 | 28 | 51 | 58 |
 
 From the golden run (20 timed passes after a warm-up). The guard's detectors are local models, so
 the guard itself costs $0 per request; the only spend is the agent's own LLM calls.
@@ -158,9 +158,9 @@ Reproduce: `uv run boundary-eval loadtest --out packages/eval/baselines/loadtest
 
 ## Provenance
 
-- golden: policy v6, config `ecc1b806d5ee93ab`, 106 records, generated 2026-10-07T20:03:35+00:00
-- extended: policy v6, config `ecc1b806d5ee93ab`, 1994 records, generated 2026-10-07T20:08:01+00:00
-- end to end: config `ecc1b806d5ee93ab`, model `openai/gpt-4.1-mini`, generated 2026-10-07T20:12:44+00:00
+- golden: policy v7, config `20f7cdd53c77774c`, 106 records, generated 2026-10-07T20:20:13+00:00
+- extended: policy v7, config `20f7cdd53c77774c`, 1994 records, generated 2026-10-07T20:21:48+00:00
+- end to end: config `20f7cdd53c77774c`, model `openai/gpt-4.1-mini`, generated 2026-10-07T20:23:24+00:00
 - load test: 2026-10-07T09:01:50Z
 
 ## Caveats

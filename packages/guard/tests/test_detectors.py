@@ -444,3 +444,41 @@ def test_fingerprint_does_not_depend_on_the_environment(policies_dir):
     a = _known(policies_dir, {"VENDOR_API_KEY": OWN_KEY})
     b = _known(policies_dir, {})
     assert a.fingerprint() == b.fingerprint()
+
+
+async def test_secrets_redact_first_so_other_policies_never_see_the_key(policies_dir, tmp_path):
+    from boundary_guard import GuardConfig
+
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "secrets.v2.yaml").write_text(
+        (policies_dir / "rules" / "secrets.v2.yaml").read_text()
+    )
+    secrets_detector = {"type": "regex_rules", "ruleset": "rules/secrets.v2.yaml", "redact_first": True}
+    config = GuardConfig.model_validate(
+        {
+            "version": 1,
+            "policies": [
+                {"id": "watcher", "stages": ["final_output"], "action": "flag", "detector": {"type": "stub"}},
+                {
+                    "id": "secrets",
+                    "stages": ["final_output"],
+                    "action": "redact",
+                    "detector": secrets_detector,
+                },
+                {"id": "egress", "stages": ["tool_args"], "action": "block", "detector": secrets_detector},
+            ],
+        }
+    )
+    guard = Guard(config, base_dir=tmp_path)
+    watcher = guard._policies["watcher"].detector  # the stub records what it was shown
+
+    result = await guard.check(Stage.FINAL_OUTPUT, f"key {FAKE_OPENAI_SHORT} here")
+    assert result.text == "key <OPENAI_KEY_1> here"
+    assert watcher.seen == ["key <OPENAI_KEY_1> here"]  # listed first in the file, still ran second
+
+    guard.set_mode("secrets", Mode.SHADOW)  # shadow only logs: nothing is rewritten for anyone
+    await guard.check(Stage.FINAL_OUTPUT, f"key {FAKE_OPENAI_SHORT} here")
+    assert watcher.seen[-1] == f"key {FAKE_OPENAI_SHORT} here"
+
+    blocked = await guard.check(Stage.TOOL_ARGS, f'{{"q": "{FAKE_OPENAI_SHORT}"}}')
+    assert blocked.action is Action.BLOCK

@@ -4,7 +4,7 @@
 # This is the production set: the enforced detectors plus cheap regex baselines in shadow. Detectors kept only for comparison live in policies/experiments/ so they don't add
 # latency here. Thresholds are tuned on the dev split at a ≤2% dev false-positive budget
 # (`boundary-eval tune <result> --max-fpr 0.02`); see docs/EVAL.md for the sweep.
-version: 6
+version: 7
 
 defaults:
   timeout_ms: 400
@@ -100,6 +100,9 @@ policies:
       # This deployment's own credentials must never appear, whatever their format. Values are read
       # from these env vars at startup and held in memory only.
       known_secrets_env: ["*_API_KEY", "*_SECRET_KEY", "*_SECRET", "*_TOKEN", "*_PASSWORD"]
+      # Redact before the stage's other policies run, so no model (toxicity, NLI, an LLM judge rule)
+      # ever sees a raw key, and random key text can't trip them.
+      redact_first: true
     action: redact
 
   - id: secrets_egress
