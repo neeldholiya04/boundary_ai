@@ -706,3 +706,40 @@ async def test_user_input_rule_escalates_to_content_review(session, tmp_path):
     approval = await session.get(ApprovalRequest, response.approval_request_id)
     assert (approval.kind, approval.stage) == ("content_review", "user_input")
     assert planner.seen == []
+
+
+async def test_stored_excerpt_stays_redacted_when_secrets_rewrite_first(session, tmp_path):
+    # With redact_first, PII runs on the rewritten text; its offsets must not be applied to the original.
+    secrets_first = {**SECRETS_REDACT, "detector": {**SECRETS_REDACT["detector"], "redact_first": True}}
+    runtime, planner, _, _ = await setup(
+        session, tmp_path, [secrets_first, EMAIL_REDACT], plan(answer("ok")), {}
+    )
+
+    await runtime.handle_chat(session, f"key {FAKE_OPENAI_SHORT} and mail priya@example.com please", None)
+
+    assert planner.seen[0]["user_message"] == "key <OPENAI_KEY_1> and mail <EMAIL_1> please"
+    stored = await everything_stored(session)
+    assert "priya@example.com" not in stored and FAKE_OPENAI_SHORT not in stored
+
+
+async def test_public_playground_scans_never_run_operator_rules(tmp_path):
+    from boundary_agent.playground import scan_text
+    from boundary_agent.rules import RuleSpec, compile_rule
+    from boundary_guard import Stage
+
+    guard = build_guard(tmp_path, [EMAIL_REDACT])
+    rule = RuleSpec.model_validate(
+        {
+            "name": "Codenames",
+            "stages": ["user_input"],
+            "mode": "enforce",
+            "action": "redact",
+            "check": {"type": "keywords", "keywords": ["Project Falcon"]},
+        }
+    )
+    guard.add_policy(compile_rule(rule, "rule_codenames"))
+
+    report = await scan_text(guard, Stage.USER_INPUT, "Project Falcon, mail priya@example.com")
+
+    assert [p["policy_id"] for p in report["policies"]] == ["email"]
+    assert report["text"] == "Project Falcon, mail <EMAIL_1>"

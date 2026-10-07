@@ -80,8 +80,12 @@ class GuardOutcome:
 
 def _excerpt(text: str, decisions: list[PolicyDecision], sensitive: set[str]) -> str:
     """Redact spans found by sensitive policies (PII, secrets, anything that redacts). Spans from
-    e.g. injection rules stay readable: the attack text is what a reviewer needs to see."""
-    spans = [span for d in decisions if d.policy_id in sensitive for span in d.spans]
+    e.g. injection rules stay readable: the attack text is what a reviewer needs to see.
+
+    `text` must be the text the spans index into (`GuardResult.checked_text`): after an enforced
+    transform (secrets' redact_first) the other detectors' offsets are into the rewritten text, and a
+    transform that rewrote has already removed its own matches from it."""
+    spans = [span for d in decisions if d.policy_id in sensitive and not d.rewritten for span in d.spans]
     return redact(text, spans)[:EXCERPT_CHARS]
 
 
@@ -228,7 +232,8 @@ class GuardAdapter:
             # Redacted with the sensitive spans the blocking policies found. Set before the next await,
             # so async policies scheduled by this check see it when their decisions reach the sink;
             # the raw text itself is never handed on (and the trace only gets this excerpt).
-            excerpt = _excerpt(text, result.decisions, self.sensitive_policies)
+            checked = result.checked_text if result.checked_text is not None else text
+            excerpt = _excerpt(checked, result.decisions, self.sensitive_policies)
             span.record(result, excerpt)
         digest = hashlib.sha256(text.encode()).hexdigest()
         ctx.metadata[_EXCERPT_KEY] = excerpt
