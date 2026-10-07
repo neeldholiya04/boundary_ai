@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -27,10 +28,26 @@ class CassetteMiss(RuntimeError):
     pass
 
 
+# Spotlighting wraps tool output in markers with a fresh random nonce per request (so injected text
+# can't forge them). The nonce changes nothing about the request's meaning, so it is normalised out
+# of the key; otherwise no spotlighted run could ever replay.
+_NONCE = re.compile(r"(<<(?:end_)?untrusted_tool_output) [0-9a-f]+>>")
+
+
+def _strip_nonces(value: Any) -> Any:
+    if isinstance(value, str):
+        return _NONCE.sub(r"\1 NONCE>>", value)
+    if isinstance(value, list):
+        return [_strip_nonces(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _strip_nonces(v) for k, v in value.items()}
+    return value
+
+
 def _key(kwargs: dict[str, Any]) -> str:
     payload = {
         "model": kwargs.get("model"),
-        "messages": kwargs.get("messages"),
+        "messages": _strip_nonces(kwargs.get("messages")),
         "tools": kwargs.get("tools"),
         "temperature": kwargs.get("temperature"),
         "tool_choice": kwargs.get("tool_choice"),

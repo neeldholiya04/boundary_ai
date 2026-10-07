@@ -232,6 +232,10 @@ Each phase below says **what** it delivered, **why** it mattered, and **how** we
   are recorded to a **cassette** so CI replays them with no key. Verified with a scripted stand-in:
   with defences off the agent gets hijacked; with defences on the dangerous action is held for
   approval; benign tasks still finish.
+- **Result** (real model, gpt-4.1-mini, replayed from the cassette): with filters + taint, attacks
+  succeed 20% of the time instead of 40% with no defence, and 2 of 3 benign tasks finish (one is held
+  for approval because a harmless article *about* injection got flagged). The small test set means
+  wide error bars; details and the per-scenario story are in [`docs/EVAL.md`](docs/EVAL.md#end-to-end-results).
 
 ### Phase 7 — CI gates, fully wired
 - **What:** one CI pipeline that runs the detector gate and the end-to-end gate, posts the results as

@@ -550,8 +550,11 @@ Each phase ends with something that runs, is tested, and is committed. Sizes: S 
 - `boundary-eval e2e` CLI; CI step replays when a cassette exists.
 - Verified offline with a scripted planner: no_defense lets a hijack write through, filters_taint
   holds it for approval (attack fails), benign tasks still complete.
-- **Blocked:** recording the cassette (and the ASR/utility numbers) needs an LLM API key, which is
-  not set on this machine. Set OPENAI_API_KEY in the root .env, then `boundary-eval e2e --mode record`.
+- Cassette recorded (2026-10-07, gpt-4.1-mini, 62 calls, $0.08) and committed with an e2e baseline.
+  Recording it surfaced four bugs, all fixed: the e2e command didn't load `.env`; replay without a
+  key never reached the cassette; the spotlight nonce changed every request key (now normalised out
+  of the key only); and message timestamps tied within a request (Postgres `now()` = transaction
+  start), so the planner's history window was arbitrary in the live app too. Results: docs/EVAL.md.
 
 ### Phase 7 — CI gates (S–M)
 - `guard-eval.yml`, `e2e-eval.yml` (replay), sticky PR comment, `gates.yaml`, baseline flow, `nightly-live.yml`.
@@ -562,8 +565,10 @@ Each phase ends with something that runs, is tested, and is committed. Sizes: S 
 - One `ci.yml` (not separate guard-eval/e2e-eval files): lint, offline tests, dataset validation,
   detector gate, e2e gate, sticky PR comment, enforce-at-end, dashboard build. Gates run first and
   the job fails last, so a blocked PR always shows why.
-- e2e gate added: `packages/eval/gates.yaml` gets an `e2e` section (ASR ≤ 15%, benign ≥ 80% on filters_taint);
-  `boundary-eval e2e --gates` enforces it; `compare.check_e2e_gate` + tests.
+- e2e gate added: `packages/eval/gates.yaml` gets an `e2e` section on filters_taint; `boundary-eval e2e
+  --gates` enforces it; `compare.check_e2e_gate` + tests. The first absolute limits (ASR ≤ 15%, benign
+  ≥ 80%) were set before any data; once the cassette existed it became a per-scenario regression gate
+  against `packages/eval/baselines/e2e.json` (5 attack / 3 benign test scenarios make rates too coarse).
 - Sticky comment via `actions/github-script` (one updated comment, hidden marker); job summary too.
 - `nightly-live.yml`: records the cassette against the live model under the scenario-bounded cost and
   opens a PR on drift; skips cleanly without an LLM key.

@@ -171,11 +171,18 @@ def cmd_tune(args: argparse.Namespace) -> int:
     return 0
 
 
+def _agent_model() -> str:
+    """The LLM_MODEL the agent will use (from the environment / root .env)."""
+    from boundary_agent.config import Settings
+
+    return Settings().llm_model
+
+
 def cmd_e2e(args: argparse.Namespace) -> int:
     import asyncio
     from datetime import UTC, datetime
 
-    from boundary_eval.compare import check_e2e_gate, load_gates
+    from boundary_eval.compare import check_e2e_gate, compare_e2e, load_gates
     from boundary_eval.e2e.cassette import Cassette, install
     from boundary_eval.e2e.report import to_markdown as e2e_markdown
     from boundary_eval.e2e.report import to_result as e2e_result
@@ -198,14 +205,26 @@ def cmd_e2e(args: argparse.Namespace) -> int:
         return 2
     configs = [CONFIGS[c] for c in config_names]
 
+    from boundary_agent.config import export_env_file
+
+    export_env_file()  # provider keys from the root .env; LiteLLM reads them from the environment
     policy_path = Path(args.policies)
-    settings_overrides = {"llm_model": args.model} if args.model else None
+    settings_overrides: dict[str, str] = {"llm_model": args.model} if args.model else {}
+    if args.mode == "replay":
+        # CI has no provider key, and the planner refuses to start without one. In replay the cassette
+        # answers every call (a miss raises before any request is made), so a placeholder is enough.
+        settings_overrides["llm_api_key"] = "cassette-replay"
     cassette = Cassette(Path(args.cassette), mode=args.mode)
 
     async def go():
         with install(cassette):
             return await run_matrix(
-                scenarios, resolved, configs, policy_path=policy_path, settings_overrides=settings_overrides
+                scenarios,
+                resolved,
+                configs,
+                policy_path=policy_path,
+                settings_overrides=settings_overrides,
+                enforce_timeouts=args.enforce_timeouts,
             )
 
     run = asyncio.run(go())
@@ -213,7 +232,8 @@ def cmd_e2e(args: argparse.Namespace) -> int:
         "suite": Path(args.scenarios).name,
         "scenarios": len(scenarios),
         "mode": args.mode,
-        "model": args.model or "from-env",
+        "model": args.model or _agent_model(),
+        "timeouts": "enforced" if args.enforce_timeouts else "lifted",
         "config_hash": Guard.from_yaml(policy_path).config_hash,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "cassette": {"hits": cassette.hits, "misses": cassette.misses, "recorded": cassette.recorded},
@@ -230,7 +250,19 @@ def cmd_e2e(args: argparse.Namespace) -> int:
         print(f"error: {cassette.misses} cassette misses in replay mode", file=sys.stderr)
         return 1
     if args.gates and Path(args.gates).is_file():
-        failures = check_e2e_gate(result, load_gates(args.gates).e2e)
+        gate = load_gates(args.gates).e2e
+        baseline = None
+        if gate.baseline:
+            baseline_path = Path(gate.baseline)
+            if baseline_path.is_file():
+                baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+                diff = compare_e2e(baseline, result, gate)
+                for label, ids in (("improved", diff.improved), ("not in baseline", diff.not_in_baseline)):
+                    if ids:
+                        print(f"e2e note: {label}: {', '.join(ids)}", file=sys.stderr)
+            else:
+                print(f"e2e note: no baseline at {baseline_path}; regression gate skipped", file=sys.stderr)
+        failures = check_e2e_gate(result, gate, baseline)
         for failure in failures:
             print(f"e2e gate failure: {failure}", file=sys.stderr)
         if failures:
@@ -301,6 +333,11 @@ def main(argv: list[str] | None = None) -> int:
     e2e.add_argument("--out", help="write the result JSON here (and .md next to it)")
     e2e.add_argument("--gates", help="apply the e2e gate from this gates.yaml (fails on violation)")
     e2e.add_argument("--quiet", action="store_true")
+    e2e.add_argument(
+        "--enforce-timeouts",
+        action="store_true",
+        help="keep the policies' production timeouts (default: lifted)",
+    )
     e2e.set_defaults(func=cmd_e2e)
 
     cmp = sub.add_parser("compare", help="compare a run against a baseline and apply CI gates")

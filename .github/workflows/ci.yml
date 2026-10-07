@@ -64,7 +64,7 @@ jobs:
             echo "passed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: End-to-end gate (replay; skipped until a cassette is committed)
+      - name: End-to-end gate (replay from the committed cassette, regression vs baseline)
         id: e2e
         run: |
           if [ -f packages/eval/cassettes/e2e.json ]; then
