@@ -4,7 +4,7 @@
 # This is the production set: the enforced detectors plus cheap regex baselines in shadow. Detectors kept only for comparison live in policies/experiments/ so they don't add
 # latency here. Thresholds are tuned on the dev split at a ≤2% dev false-positive budget
 # (`boundary-eval tune <result> --max-fpr 0.02`); see docs/EVAL.md for the sweep.
-version: 8
+version: 9
 
 defaults:
   timeout_ms: 400

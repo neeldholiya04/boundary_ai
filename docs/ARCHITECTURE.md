@@ -44,6 +44,19 @@ no off-the-shelf detector is good enough to *block* tool output (docs/EVAL.md), 
 good enough to make a human approve mutating actions after suspicious content was read. Normal
 precedence still applies: explicit `block_tool` rules beat taint approvals.
 
+## Secrets in the user's own message
+
+A redaction tells the model a value existed without giving it the value, and a model left to it will
+act on the placeholder: in a live test it wrote `<OPENAI_KEY_1>` into `.env` over the real key and
+then said it had written the key. Two deterministic stops prevent that:
+
+- when a secrets policy (`detects: [secret]`) redacts the user's message, the run ends before the
+  planner with a fixed answer (the secret was removed before it was read, nothing was done, add it
+  yourself), audited as `guard.secret_withheld`;
+- a tool call whose arguments carry a secret's placeholder (a label from those policies' rulesets, or
+  `KNOWN_SECRET`) is refused before it runs (`guard.secret_placeholder_blocked`). Placeholders for
+  personal data (`<EMAIL_1>`) still reach tools: a note that mentions a redacted address is fine.
+
 ## Content review
 
 `escalate` creates an `approval_requests` row with `kind = "content_review"` and the guard stage.

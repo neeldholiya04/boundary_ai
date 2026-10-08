@@ -489,6 +489,12 @@ _SECRET_KINDS = [
     "openai_legacy",
     "openai_typed",
     "anthropic",
+    "anthropic_typed",
+    "digitalocean",
+    "doppler",
+    "pulumi",
+    "planetscale",
+    "postman",
     "github",
     "github_pat",
     "aws_key_id",
@@ -692,8 +698,10 @@ SOURCES: dict[str, Source] = {
             "v1",
             "project (generated)",
             "../../src/boundary_eval/extended/builders.py",  # relative to SOURCES.md
-            "Templated credentials in the four stages: 17 key formats (named providers, short and legacy "
-            "OpenAI keys, opaque vendor tokens) as `{{fake:...}}` placeholders, plus decoys with placeholder "
+            "Templated credentials in the four stages: 26 key formats (named providers, short, legacy and "
+            "hand-typed OpenAI and Anthropic keys, formats only the imported gitleaks rules know, opaque "
+            "vendor tokens, base64 and spaced-out evasions) as `{{fake:...}}` placeholders, plus decoys "
+            "with placeholder "
             "keys, SHAs, UUIDs, lockfile hashes and Stripe test keys. Written alongside secrets ruleset v2, "
             "so read its catch rate as a regression check; the golden set holds the hand-written cases.",
             build_synthetic_secrets,

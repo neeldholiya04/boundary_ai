@@ -4,6 +4,53 @@ Every change to `guard.yaml`, a ruleset, or a schema bumps `version` in `guard.y
 and gets an entry here. Eval results are stamped with the config hash, so each entry
 should say which numbers it is expected to move.
 
+## v9
+- A third live leak: `claude_key = sk-ant-` + 15 typed letters passed every stage (the Anthropic rule
+  wants the real `sk-ant-api03-` shape), and with an OpenAI key the model wrote the placeholder
+  `<OPENAI_KEY_1>` into `.env` over the real value and said it had written the key.
+- `secrets` ruleset v2.2, two layers:
+  - **Formats**: the 216 provider rules of gitleaks (MIT, pinned to `b58d3f102cf3`), imported by
+    `rules/import_gitleaks.py` into `rules/providers.gitleaks.yaml` and included after the
+    hand-written rules. They run on RE2 (linear time; under a backtracking engine several took 3-4 s on
+    crafted input) and only when one of their keywords appears. Their "end of key" context also
+    accepts `,` `.` `)` (a key in a sentence, not just in code).
+  - **Context**: `provider_prefix` (strong prefixes such as `sk-ant-`, `sk-proj-`, `github_pat_`,
+    `glpat-`, `xoxb-`: any 8+ key characters) and `provider_prefix_weak` (`hf_`, `npm_`, `gsk_`, `xai-`,
+    `pul-` …, which also start code names: needs a digit or capital, or 20+ characters);
+    `dotenv_credential_line` (a credential-named `.env` line in any case, `claude_key=…`, also inside a
+    file read back as JSON). Names for something else (`sort_key`, `public_key`, `kms_key_id`, `MAX_`…)
+    and joined-word values are skipped.
+- Agent behaviour (not a policy change, listed here because it decides what a redaction means):
+  - a secret removed from the user's message stops the run with a fixed answer: the key was removed
+    before it was read, nothing was done, add it yourself (`guard.secret_withheld`);
+  - a tool call carrying a secret's placeholder (`<OPENAI_KEY_1>`) is refused before it runs
+    (`guard.secret_placeholder_blocked`). Placeholders for personal data still reach tools.
+- Eval: fakes `anthropic_typed` and five formats only gitleaks knows (DigitalOcean, Doppler, Pulumi,
+  PlanetScale, Postman) in the synthetic set; 9 golden secret records (the leak at each stage, `.env`
+  files read back as JSON) and 3 decoys (`hf_classifier`, key-named settings).
+- Review fixes before commit:
+  - `generic_assignment`'s dotted-name exclusion (v8) backtracked exponentially (`key: a.a.….1` took 1 s
+    at 24 segments, doubling per segment); now atomic.
+  - `dotenv_credential_line` fired on Python (`self.tokenizer = tokenizer`): it now needs a real .env
+    line (no indentation, no spaces around `=`, no dots in the name).
+  - Prefix rules fired on model and code names (`pplx-70b-chat`, `xai-grok-4.1-fast`, `hf_api.HfApi()`):
+    names of short lower-case segments are skipped, strong bodies need 12+ characters, weak ones can't be
+    code. Strong prefixes match in any case (`SK-ANT-…`).
+  - Imported rules take the first group that matched (Atlassian's bare `ATATT3…` was skipped) and the
+    whole match when the first group repeats (a Teams webhook was redacted as 5 characters).
+  - Agent: a placeholder the user typed no longer hides a new key in the same message (counted, not
+    looked up); tool calls are refused only when a secret placeholder is assigned as a value, in any
+    spelling (`{{openai_key_1}}`, `%3C…%3E`, `&lt;…&gt;`, `$X_1`), and only while secrets enforce; a
+    note that mentions a placeholder goes through.
+- Known gaps: a key whose prefix uses a Unicode hyphen or contains a zero-width character, and a short
+  typed value in YAML/header form without a provider prefix (`x-api-key: <15 letters>`).
+- Measured: `secrets` catches 100% on golden (19/19 test) and extended, 0% FPR on both (0 of 2,548
+  clean records across all datasets flag; the repo's own code and docs only flag the dev passwords in
+  `.env.example`). p99 latency 0.76 → 1.77 ms per check (golden). Every rule, imported or hand-written, stays
+  under 10 ms on 20k-character text built from its own keywords. New e2e scenario
+  `e2e-sec-typed-anthropic`; the three "pasted key" scenarios now count the plain answer as task
+  success. Test ASR guard off → as shipped: 77.8% → 11.1% (9 attack scenarios).
+
 ## v8
 - `secrets` ruleset v2.1, after a second live leak: a typed `sk-proj-` key (34 lowercase letters from 8
   keys) was stored raw, written to `.env` and printed in the answer. The OpenAI rule wanted a digit, a

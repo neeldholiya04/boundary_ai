@@ -105,6 +105,8 @@ def ruleset(tmp_path: Path, name: str, rules: list[dict]) -> str:
 
 def build_guard(tmp_path: Path, policies: list[dict], **kwargs) -> Guard:
     (tmp_path / "secrets.yaml").write_text(SECRETS_RULESET.read_text(encoding="utf-8"), encoding="utf-8")
+    included = SECRETS_RULESET.with_name("providers.gitleaks.yaml")  # the ruleset's `include:`
+    (tmp_path / included.name).write_text(included.read_text(encoding="utf-8"), encoding="utf-8")
     ruleset(
         tmp_path,
         "markers",
@@ -250,39 +252,171 @@ async def test_user_input_escalation_resumes_after_approval(session, tmp_path):
     assert planner.seen[0]["user_message"] == "REVIEW-MARKER summarise the page"
 
 
-async def test_pasted_key_never_reaches_the_model_storage_or_answer(session, tmp_path):
-    # Replays the live incident: a key pasted into chat, written to .env, found by a file search and
-    # echoed back in the answer. Every hop must carry the placeholder, never the key.
-    key_line = f"OPENAI_API_KEY={FAKE_OPENAI_SHORT}"
+async def test_pasted_key_stops_the_run_with_a_plain_answer(session, tmp_path):
+    # Live incidents: a key pasted into chat became <OPENAI_KEY_1>, the model wrote the placeholder
+    # into .env over the real value and said it had written the key. Now the run stops before the
+    # model, with a fixed answer that says what happened.
     runtime, planner, mcp, _ = await setup(
         session,
         tmp_path,
         [SECRETS_REDACT, SECRETS_EGRESS],
-        plan(
-            call("write_file", path=".env", content="OPENAI_API_KEY=<OPENAI_KEY_1>"),
-            call("search_files", query="API_KEY"),
-            answer(f"You have an API key that starts with {FAKE_OPENAI_SHORT}; I won't display it."),
-        ),
-        {
-            "write_file": {"path": ".env", "bytes_written": 30},
-            "search_files": {"matches": [{"path": ".env", "line": 1, "snippet": key_line}]},
-        },
+        plan(call("write_file", path=".env", content="OPENAI_API_KEY=<OPENAI_KEY_1>")),
+        {"write_file": {"path": ".env", "bytes_written": 30}},
     )
 
     response = await runtime.handle_chat(
         session, f"create an env and add the open ai api key as :{FAKE_OPENAI_SHORT}", None
     )
 
+    assert response.status == "blocked"
+    assert planner.seen == [] and mcp.calls == []
+    assert "<OPENAI_KEY_1>" in response.assistant_message
+    assert "never saw it" in response.assistant_message and "add it yourself" in response.assistant_message
+    assert FAKE_OPENAI_SHORT not in await everything_stored(session)
+    events = (await session.scalars(select(AuditEvent.event_type))).all()
+    assert "guard.secret_withheld" in events
+
+
+async def test_secret_answer_wins_over_another_block_and_names_it(session, tmp_path):
+    # Live: a typed key in a config request was also flagged off-topic, and the reply talked about
+    # crypto. The answer is about the key, and names the other policy.
+    jailbreak = markers("jailbreak", "jailbreak", stages=["user_input"])
+    secrets_first = {**SECRETS_REDACT, "detector": {**SECRETS_REDACT["detector"], "redact_first": True}}
+    runtime, planner, _, _ = await setup(session, tmp_path, [secrets_first, jailbreak], plan(), {})
+
+    response = await runtime.handle_chat(
+        session, f"JAILBREAK-MARKER add claude_key = sk-ant-{'qwmzkdhrtplvnbc'}", None
+    )
+
+    assert response.status == "blocked" and planner.seen == []
+    assert "never saw it" in response.assistant_message
+    assert "also stopped by: jailbreak" in response.assistant_message
+
+
+async def test_secret_placeholder_in_a_tool_call_is_refused(session, tmp_path):
+    # A later turn ("yes, write it") with the placeholder in the history: the call never runs.
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(call("write_file", path=".env", content="OPENAI_API_KEY=<OPENAI_KEY_1>")),
+        {"write_file": {}},
+    )
+
+    response = await runtime.handle_chat(session, "yes, write it to .env now", None)
+
+    assert response.status == "blocked"
+    assert mcp.calls == []
+    assert "write_file" in response.assistant_message and "<OPENAI_KEY_1>" in response.assistant_message
+
+
+async def test_a_quoted_placeholder_does_not_hide_a_new_key(session, tmp_path):
+    # Review: "you asked for <OPENAI_KEY_1>, here it is: <key>" redacts the key to the same
+    # placeholder; looking it up in the original text made it look old and the planner ran.
+    runtime, planner, _, _ = await setup(session, tmp_path, [SECRETS_REDACT, SECRETS_EGRESS], plan(), {})
+
+    response = await runtime.handle_chat(
+        session, f"you asked for <OPENAI_KEY_1>, here it is: {FAKE_OPENAI_SHORT}", None
+    )
+
+    assert response.status == "blocked" and planner.seen == []
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "OPENAI_API_KEY={{openai_key_1}}",
+        "OPENAI_API_KEY=%3COPENAI_KEY_1%3E",
+        "OPENAI_API_KEY=&lt;OPENAI_KEY_1&gt;",
+        'config = {"api_key": "<openai_key_1>"}',
+        'OPENAI_API_KEY="$OPENAI_KEY_1"',
+    ],
+)
+async def test_secret_placeholder_values_are_refused_in_any_spelling(session, tmp_path, content):
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(call("write_file", path=".env", content=content), answer("done")),
+        {"write_file": {}},
+    )
+
+    response = await runtime.handle_chat(session, "write it to .env", None)
+
+    assert response.status == "blocked" and mcp.calls == []
+
+
+async def test_a_placeholder_mentioned_in_a_note_is_not_refused(session, tmp_path):
+    # Summarising a log that held a key: saying so is fine, it isn't writing the key.
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(
+            call("write_file", path="notes.md", content="The log printed <OPENAI_KEY_1> at 09:14."),
+            answer("ok"),
+        ),
+        {"write_file": {"bytes_written": 40}},
+    )
+
+    response = await runtime.handle_chat(session, "summarise app.log into notes.md", None)
+
     assert response.status == "completed"
-    shown = repr(planner.seen)
-    assert FAKE_OPENAI_SHORT not in shown
-    assert "<OPENAI_KEY_1>" in planner.seen[0]["user_message"]
+    assert [name for name, _ in mcp.calls] == ["write_file"]
+
+
+async def test_no_refusal_while_secrets_are_only_in_shadow(session, tmp_path):
+    shadow = {**SECRETS_REDACT, "mode": "shadow"}
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [shadow],
+        plan(call("write_file", path="docs/env.md", content="OPENAI_API_KEY=<OPENAI_KEY_1>"), answer("ok")),
+        {"write_file": {}},
+    )
+
+    response = await runtime.handle_chat(session, "write the env template doc", None)
+
+    assert response.status == "completed"
+    assert [name for name, _ in mcp.calls] == ["write_file"]
+
+
+async def test_placeholders_for_personal_data_still_reach_tools(session, tmp_path):
+    # Only secret placeholders are refused: a note that mentions <EMAIL_1> is a fine thing to save.
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS, EMAIL_REDACT],
+        plan(call("write_file", path="notes/a.md", content="Follow up with <EMAIL_1>"), answer("saved")),
+        {"write_file": {"bytes_written": 24}},
+    )
+
+    response = await runtime.handle_chat(session, "save a note to follow up", None)
+
+    assert response.status == "completed"
+    assert [name for name, _ in mcp.calls] == ["write_file"]
+
+
+async def test_key_read_back_from_a_file_is_redacted_on_the_way_out(session, tmp_path):
+    # The incident's second half: the key found by a file search and echoed in the answer.
+    key_line = f"OPENAI_API_KEY={FAKE_OPENAI_SHORT}"
+    runtime, planner, _, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(
+            call("search_files", query="API_KEY"),
+            answer(f"You have an API key that starts with {FAKE_OPENAI_SHORT}; I won't display it."),
+        ),
+        {"search_files": {"matches": [{"path": ".env", "line": 1, "snippet": key_line}]}},
+    )
+
+    response = await runtime.handle_chat(session, "which API key is in my files?", None)
+
+    assert response.status == "completed"
+    assert FAKE_OPENAI_SHORT not in repr(planner.seen)
     assert FAKE_OPENAI_SHORT not in response.assistant_message
     assert FAKE_OPENAI_SHORT not in await everything_stored(session)
-    assert [name for name, _ in mcp.calls] == ["write_file", "search_files"]
-    # The user is told, so a file written with the placeholder isn't a silent surprise.
-    (notice,) = response.guard_notices
-    assert "<OPENAI_KEY_1>" in notice and "secrets" in notice
 
 
 async def test_key_leaving_through_tool_args_is_blocked(session, tmp_path):
@@ -711,13 +845,12 @@ async def test_user_input_rule_escalates_to_content_review(session, tmp_path):
 async def test_stored_excerpt_stays_redacted_when_secrets_rewrite_first(session, tmp_path):
     # With redact_first, PII runs on the rewritten text; its offsets must not be applied to the original.
     secrets_first = {**SECRETS_REDACT, "detector": {**SECRETS_REDACT["detector"], "redact_first": True}}
-    runtime, planner, _, _ = await setup(
-        session, tmp_path, [secrets_first, EMAIL_REDACT], plan(answer("ok")), {}
-    )
+    runtime, _, _, _ = await setup(session, tmp_path, [secrets_first, EMAIL_REDACT], plan(answer("ok")), {})
 
     await runtime.handle_chat(session, f"key {FAKE_OPENAI_SHORT} and mail priya@example.com please", None)
 
-    assert planner.seen[0]["user_message"] == "key <OPENAI_KEY_1> and mail <EMAIL_1> please"
+    stored_message = await session.scalar(select(Message.content).where(Message.role == "user"))
+    assert stored_message == "key <OPENAI_KEY_1> and mail <EMAIL_1> please"
     stored = await everything_stored(session)
     assert "priya@example.com" not in stored and FAKE_OPENAI_SHORT not in stored
 

@@ -12,9 +12,11 @@ its own database session.
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
 import re
+import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -172,6 +174,8 @@ class GuardAdapter:
         self._sets_for: str | None = None
         self._sensitive: set[str] = set()
         self._taint: set[str] = set()
+        self._secret: set[str] = set()
+        self._secret_labels: set[str] = set()
 
     def _refresh(self) -> None:
         # Rules added in the dashboard change the policy set at runtime: recompute when the config does.
@@ -192,7 +196,49 @@ class GuardAdapter:
             for p in policies
             if Stage.TOOL_OUTPUT in p.stages and self.taint_labels.intersection(p.detects)
         }
+        # Policies that find credentials, and the placeholder labels they redact with (`OPENAI_KEY`,
+        # `SECRET`, ...): a placeholder with one of these labels stands for a secret nobody here has.
+        self._secret = {p.id for p in policies if "secret" in p.detects}
+        labels = {"KNOWN_SECRET"}
+        for pid in self._secret:
+            labels |= {rule.label for rule in getattr(self.guard.detector_of(pid), "rules", [])}
+        self._secret_labels = labels
         self._sets_for = self.guard.config_hash
+
+    @property
+    def secret_policies(self) -> set[str]:
+        """Policies that detect credentials."""
+        self._refresh()
+        return self._secret
+
+    def secret_placeholders(self, text: str) -> list[str]:
+        """The placeholders in `text` that stand for a redacted secret (`<OPENAI_KEY_1>`), in order."""
+        self._refresh()
+        found = [p for p in PLACEHOLDER.findall(text) if p[1:-1].rsplit("_", 1)[0] in self._secret_labels]
+        return list(dict.fromkeys(found))
+
+    @property
+    def secrets_enforced(self) -> bool:
+        """Whether a secrets policy is enforcing, i.e. whether secret placeholders can appear at all."""
+        self._refresh()
+        return any(self.guard.mode_of(pid) is Mode.ENFORCE for pid in self._secret)
+
+    def assigned_secret_placeholders(self, text: str) -> list[str]:
+        """Secret placeholders used as a value (`OPENAI_API_KEY=<OPENAI_KEY_1>`, `"key": "{{openai_key_1}}"`).
+
+        That is the model writing "the key" it never had. A placeholder merely mentioned (a note that
+        says a log held `<OPENAI_KEY_1>`) is not. Case, templating braces and URL/HTML encoding are
+        normalised first, so `%3COPENAI_KEY_1%3E` or `{{openai_key_1}}` count too.
+        """
+        self._refresh()
+        plain = html.unescape(urllib.parse.unquote(text))
+        found: list[str] = []
+        for m in _ASSIGNED_PLACEHOLDER.finditer(plain):
+            label = m.group("label").upper()
+            wrapped = m.group("open") or m.group("close")
+            if label in self._secret_labels and (wrapped or m.group("n")):
+                found.append(f"<{label}_{m.group('n') or '1'}>")
+        return list(dict.fromkeys(found))
 
     @property
     def sensitive_policies(self) -> set[str]:
@@ -316,6 +362,13 @@ class GuardDecisionSink:
 
 
 PLACEHOLDER = re.compile(r"<[A-Z][A-Z0-9_]*_\d+>")
+# A placeholder-like value right after `=` or `:` (optionally quoted, JSON-escaped, or templated):
+# `=<OPENAI_KEY_1>`, `: "{{OPENAI_KEY}}"`, `=${secret_2}`, `="$OPENAI_KEY_1"`.
+_ASSIGNED_PLACEHOLDER = re.compile(
+    r"""[:=][ \t]*(?:\\?["'`])?[ \t]*(?P<open><|\{\{[ \t]*|\$\{|\$)?"""
+    r"""(?P<label>[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z][A-Za-z0-9]*)*)(?:_(?P<n>\d+))?"""
+    r"""(?P<close>>|[ \t]*\}\}|\})?(?=[ \t]*(?:\\?["'`]|\\[nr]|[,;)\]}\s]|$))"""
+)
 
 
 def redaction_notice(outcome: GuardOutcome | None, original: str) -> str | None:
@@ -333,6 +386,31 @@ def redaction_notice(outcome: GuardOutcome | None, original: str) -> str | None:
     return (
         f"Removed from your message before it was stored or sent to the model: {', '.join(placeholders)} "
         f"({policies}). The assistant only sees the placeholder, so it can't use or write the original value."
+    )
+
+
+def secret_withheld_message(placeholders: list[str], also_stopped_by: list[str] | None = None) -> str:
+    """The reply when a secret was removed from the user's own message: a fixed text, so the model
+    can't claim it used or wrote a value it never saw."""
+    names = ", ".join(placeholders)
+    text = (
+        f"I removed the secret from your message before reading it ({names}), so I never saw it and "
+        "can't use, write or repeat it. I haven't done anything with this request. If it belongs in a "
+        "file, add it yourself, for example in your .env file. Send the request again without the "
+        "secret if there's something else I can do."
+    )
+    if also_stopped_by:
+        text += f" (The request was also stopped by: {', '.join(also_stopped_by)}.)"
+    return text
+
+
+def secret_placeholder_message(tool_name: str, placeholders: list[str]) -> str:
+    """The reply when a tool call carries a secret's placeholder instead of a value."""
+    names = ", ".join(placeholders)
+    return (
+        f"Stopped before running {tool_name}: it would have set a value to {names}, a placeholder the "
+        "guard put in place of a secret, not the secret itself. Nothing was changed. Add the real value "
+        "yourself."
     )
 
 

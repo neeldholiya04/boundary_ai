@@ -7,7 +7,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from boundary_guard.core.config import GuardConfig, PolicyConfig, load_config, resolve_policy
 from boundary_guard.core.detector import Detector, build_detector
@@ -117,6 +117,10 @@ class Guard:
     def mode_of(self, policy_id: str) -> Mode:
         bound = self._policies[policy_id]
         return self._overrides.get(policy_id, bound.config.mode)
+
+    def detector_of(self, policy_id: str) -> Any:
+        """The policy's detector (read-only use: e.g. the labels a regex ruleset redacts with)."""
+        return self._policies[policy_id].detector
 
     def threshold_of(self, policy_id: str) -> float | None:
         return self._policies[policy_id].detector.threshold
