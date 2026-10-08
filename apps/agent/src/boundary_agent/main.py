@@ -42,7 +42,7 @@ from boundary_agent.models import (
     Run,
 )
 from boundary_agent.playground import build_router
-from boundary_agent.policy import PolicyEngine
+from boundary_agent.policy import PolicyEngine, policy_mode
 from boundary_agent.realtime import EventBroker
 from boundary_agent.rules import RULE_PREFIX, RuleSpec, benign_records, compile_rule, dry_run, policy_id_for
 from boundary_agent.schemas import (
@@ -55,6 +55,7 @@ from boundary_agent.schemas import (
     MCPServerUpdate,
     PolicyCreate,
     PolicyUpdate,
+    check_policy_shape,
 )
 from boundary_agent.secrets_mask import mask_config, unmask_config
 from boundary_agent.telemetry import Telemetry
@@ -109,21 +110,38 @@ DEFAULT_GUARD_SIGNAL_POLICIES = [
 
 
 async def _seed_guard_signal_policies(session: AsyncSession) -> None:
-    existing = await session.scalar(select(Policy).where(Policy.rule_type == "guard_signal").limit(1))
-    if existing is not None:
+    """Create the default taint policies on first start only. The audit log remembers that they were
+    offered, so a default someone deleted or edited stays that way across restarts."""
+    already = await session.scalar(
+        select(AuditEvent.id).where(AuditEvent.event_type == "policy.defaults_seeded").limit(1)
+    )
+    if already is not None:
         return
-    for item in DEFAULT_GUARD_SIGNAL_POLICIES:
-        session.add(
-            Policy(
-                name=item["name"],
-                rule_type="guard_signal",
-                enabled=True,
-                priority=190,
-                target_tool=item["target_tool"],
-                conditions_json={"run_tainted": True},
-                action_json={"verdict": "require_approval", "reason": item["reason"]},
+    # Databases from before this marker: if any taint policy exists, the defaults were seeded then.
+    # Mark the ones still named as shipped, so the dashboard can label them.
+    existing = await session.scalar(select(Policy).where(Policy.rule_type == "guard_signal").limit(1))
+    default_names = {item["name"] for item in DEFAULT_GUARD_SIGNAL_POLICIES}
+    for old in (await session.scalars(select(Policy).where(Policy.name.in_(default_names)))).all():
+        old.action_json = {**(old.action_json or {}), "default": True}
+    if existing is None:
+        for item in DEFAULT_GUARD_SIGNAL_POLICIES:
+            session.add(
+                Policy(
+                    name=item["name"],
+                    rule_type="guard_signal",
+                    enabled=True,
+                    mode="enforce",
+                    priority=190,
+                    target_tool=item["target_tool"],
+                    conditions_json={"run_tainted": True},
+                    action_json={"verdict": "require_approval", "reason": item["reason"], "default": True},
+                )
             )
-        )
+    await audit_logger.record(
+        session,
+        "policy.defaults_seeded",
+        {"names": [item["name"] for item in DEFAULT_GUARD_SIGNAL_POLICIES], "created": existing is None},
+    )
 
 
 async def _warm_up_guard() -> None:
@@ -418,23 +436,41 @@ async def list_policies(session: AsyncSession = Depends(get_session)) -> list[di
             "name": policy.name,
             "rule_type": policy.rule_type,
             "enabled": policy.enabled,
+            "mode": policy_mode(policy),
             "priority": policy.priority,
             "target_tool": policy.target_tool,
             "target_server_id": policy.target_server_id,
             "conditions": policy.conditions_json,
             "action": policy.action_json,
             "created_at": policy.created_at,
+            "updated_at": policy.updated_at,
         }
         for policy in policies
     ]
 
 
+def _policy_audit(policy: Policy) -> dict:
+    """Everything that decides what a policy does, so the log shows each version."""
+    return {
+        "policy_id": policy.id,
+        "name": policy.name,
+        "rule_type": policy.rule_type,
+        "mode": policy_mode(policy),
+        "priority": policy.priority,
+        "target_tool": policy.target_tool,
+        "conditions": policy.conditions_json,
+        "action": policy.action_json,
+    }
+
+
 @app.post("/api/policies")
 async def create_policy(payload: PolicyCreate, session: AsyncSession = Depends(get_session)) -> dict:
+    mode = payload.mode if payload.enabled else "off"
     policy = Policy(
         name=payload.name,
         rule_type=payload.rule_type,
-        enabled=payload.enabled,
+        enabled=mode != "off",
+        mode=mode,
         priority=payload.priority,
         target_tool=payload.target_tool,
         target_server_id=payload.target_server_id,
@@ -443,11 +479,7 @@ async def create_policy(payload: PolicyCreate, session: AsyncSession = Depends(g
     )
     session.add(policy)
     await session.flush()
-    await audit_logger.record(
-        session,
-        "policy.created",
-        {"policy_id": policy.id, "name": policy.name, "rule_type": policy.rule_type},
-    )
+    await audit_logger.record(session, "policy.created", _policy_audit(policy))
     await session.commit()
     return {"id": policy.id}
 
@@ -459,18 +491,34 @@ async def update_policy(
     policy = await session.get(Policy, policy_id)
     if policy is None:
         raise HTTPException(status_code=404, detail="Policy not found")
-    for field_name, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    # An explicit null only means something for the scope fields (a budget has no tool).
+    changes = {k: v for k, v in changes.items() if v is not None or k in ("target_tool", "target_server_id")}
+    # `mode` and the older `enabled` describe the same switch; keep them in step.
+    if "mode" in changes:
+        changes["enabled"] = changes["mode"] != "off"
+    elif "enabled" in changes:
+        current = policy_mode(policy)
+        changes["mode"] = ("enforce" if current == "off" else current) if changes["enabled"] else "off"
+    # Only a change to what the policy does is re-validated, so an old policy that fails today's checks
+    # can still be switched off or to shadow.
+    try:
+        if {"rule_type", "conditions", "action"} & changes.keys():
+            check_policy_shape(
+                changes.get("rule_type", policy.rule_type),
+                changes.get("conditions", policy.conditions_json),
+                changes.get("action", policy.action_json),
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    for field_name, value in changes.items():
         if field_name == "conditions":
             policy.conditions_json = value
         elif field_name == "action":
             policy.action_json = value
         else:
             setattr(policy, field_name, value)
-    await audit_logger.record(
-        session,
-        "policy.updated",
-        {"policy_id": policy.id, "enabled": policy.enabled, "priority": policy.priority},
-    )
+    await audit_logger.record(session, "policy.updated", _policy_audit(policy))
     await session.commit()
     return {"ok": True}
 
@@ -480,7 +528,7 @@ async def delete_policy(policy_id: str, session: AsyncSession = Depends(get_sess
     policy = await session.get(Policy, policy_id)
     if policy is None:
         raise HTTPException(status_code=404, detail="Policy not found")
-    await audit_logger.record(session, "policy.deleted", {"policy_id": policy.id})
+    await audit_logger.record(session, "policy.deleted", {"policy_id": policy.id, "name": policy.name})
     await session.delete(policy)
     await session.commit()
     return {"ok": True}

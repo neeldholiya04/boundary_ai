@@ -986,6 +986,8 @@ class AgentRuntime:
                 "reason": decision.reason,
                 "matched_rule_ids": decision.matched_rule_ids,
                 "source": source,
+                # Shadow policies: what they would have decided, not acted on.
+                **({"shadow": decision.shadow} if decision.shadow else {}),
             },
             conversation_id=conversation_id,
             run_id=run_id,

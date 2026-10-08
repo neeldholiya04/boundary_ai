@@ -1747,3 +1747,39 @@ mark.hit {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- new-rule chooser --------------------------------------------------------------------- */
+
+.pick-list {
+  display: grid;
+  gap: 10px;
+}
+
+.pick {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+}
+
+.pick:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.pick svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--accent-text);
+}
+
+.pick strong {
+  display: block;
+  margin-bottom: 2px;
+  font-weight: 500;
+}

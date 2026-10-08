@@ -20,7 +20,7 @@ const CATEGORIES: { key: Category; label: string }[] = [
 ];
 
 function categoryOf(type: string): Exclude<Category, "all"> {
-  if (type.startsWith("guard.rule") || type.startsWith("policy.created") || type.startsWith("policy.updated") || type.startsWith("policy.deleted") || type === "guard.mode_changed")
+  if (type.startsWith("guard.rule") || type.startsWith("policy.created") || type.startsWith("policy.updated") || type.startsWith("policy.deleted") || type === "policy.defaults_seeded" || type === "guard.mode_changed")
     return "rules";
   if (type.startsWith("guard.")) return "guard";
   if (type.startsWith("mcp.") || type.startsWith("policy.")) return "tools";
@@ -37,14 +37,18 @@ const LABELS: Record<string, string> = {
   "guard.async_decision": "Guard checked (async)",
   "guard.run_tainted": "Run tainted",
   "guard.mode_changed": "Mode changed",
-  "guard.rule_created": "Rule created",
-  "guard.rule_updated": "Rule updated",
-  "guard.rule_deleted": "Rule deleted",
+  "guard.rule_created": "Text rule created",
+  "guard.rule_updated": "Text rule updated",
+  "guard.rule_deleted": "Text rule deleted",
   "guard.rule_failed": "Rule failed to load",
   "mcp.tools_discovered": "Tools discovered",
   "mcp.tool_succeeded": "Tool ran",
   "mcp.tool_failed": "Tool failed",
-  "policy.decision": "Tool policy decided",
+  "policy.decision": "Tool rule decided",
+  "policy.created": "Tool rule created",
+  "policy.updated": "Tool rule updated",
+  "policy.deleted": "Tool rule deleted",
+  "policy.defaults_seeded": "Defaults checked",
   "approval.requested": "Approval requested",
   "approval.approved": "Approved",
   "approval.denied": "Denied",
@@ -73,11 +77,20 @@ function summarize(event: AuditEvent): { text: string; tone?: "warn" | "danger" 
     }
     case "guard.run_tainted":
       return { text: s(p.reason), tone: "warn" };
-    case "policy.decision":
+    case "policy.decision": {
+      const shadow = (Array.isArray(p.shadow) ? p.shadow : []) as Payload[];
+      const would = shadow.map((x) => `would ${s(x.verdict).replace("_", " ")}`).join(", ");
       return {
-        text: `${s(p.tool_name)}: ${s(p.verdict).replace("_", " ")}. ${argsLine(p.arguments as Payload, 90)}`,
-        tone: p.verdict === "block" ? "danger" : p.verdict === "require_approval" ? "warn" : undefined
+        text: `${s(p.tool_name)}: ${s(p.verdict).replace("_", " ")}${would ? ` (shadow: ${would})` : ""}. ${argsLine(p.arguments as Payload, 90)}`,
+        tone: p.verdict === "block" ? "danger" : p.verdict === "require_approval" || would ? "warn" : undefined
       };
+    }
+    case "policy.created":
+    case "policy.updated":
+    case "policy.deleted":
+      return { text: `${s(p.name) || s(p.policy_id)}${p.mode ? ` (${s(p.mode)})` : ""}` };
+    case "policy.defaults_seeded":
+      return { text: `Default tool rules ${p.created ? "created" : "already present"}` };
     case "mcp.tool_succeeded":
       return { text: s(p.tool_name) };
     case "mcp.tool_failed":
