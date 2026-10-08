@@ -110,6 +110,7 @@ export type GuardPolicyStatus = {
   id: string;
   // file: the reviewed baseline in policies/guard.yaml; rule: written in the dashboard.
   origin: "file" | "rule";
+  description: string | null;
   tools: string[] | null;
   stages: string[];
   detector: string;
