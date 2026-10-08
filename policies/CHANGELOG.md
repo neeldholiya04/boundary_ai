@@ -4,6 +4,39 @@ Every change to `guard.yaml`, a ruleset, or a schema bumps `version` in `guard.y
 and gets an entry here. Eval results are stamped with the config hash, so each entry
 should say which numbers it is expected to move.
 
+## v8
+- `secrets` ruleset v2.1, after a second live leak: a typed `sk-proj-` key (34 lowercase letters from 8
+  keys) was stored raw, written to `.env` and printed in the answer. The OpenAI rule wanted a digit, a
+  capital and ≥3.0 bits/char, so a made-up or typed key passed every stage.
+  - `openai_prefixed_key`: `sk-proj-` / `sk-svcacct-` / `sk-admin-` + 20 key characters match whatever the
+    body looks like. Bare `sk-` keeps the old shape checks (prose and package names use it).
+  - `env_credential`: `*_API_KEY` / `*_SECRET(_KEY)` / `*_TOKEN` / `*_PASSWORD` (upper case) set to any
+    value, written `NAME=value` or with a quoted string. Code that reads a variable doesn't match.
+  - `phrasing_with_separator`: "put this key there: …", "here's my new token: …".
+  - `openai_prefixed_key` skips hyphen-joined lowercase words (`sk-proj-management-dashboard-v2`).
+  - `env_credential_mapping`: the same names in code, YAML and JSON (`"OPENAI_API_KEY": "…"`, a compose
+    `environment:` map); there the value must mix letters and digits, since a plain word is usually a
+    constant. Public frontend names (`NEXT_PUBLIC_`, `VITE_`, …), `INVALID_`/`MAX_`/`HEADER_`-style
+    constants and function calls don't match.
+  - Allowlist: a body of one repeated character, whole-value references (`$VAR`, `${VAR}`, `%VAR%`,
+    `{{ … }}`; anchored, so a password that starts with `$` still counts), and template values
+    (`your-openai-api-key`, `change-me`, `undefined`). `generic_assignment` skips dotted code references
+    (`settings.API_TOKEN`), scoped to that rule so dotted tokens (Mapbox, Google OAuth) still match.
+  - `phrasing_with_separator` takes `:`/`=` only, with bounded lookaheads (a `key-key-…` run took 2.7 s).
+- Two older misses the rebuilt data exposed: `google_api_key` ended in `\b`, which never matches after
+  a key ending in `-` or `_`; `high_entropy_token` rejected a token followed by a full stop ("…it is
+  <token>.").
+- Eval: `openai_typed` and `weak_secret` fakes; 9 golden secret records (the leak at every stage) and
+  5 decoys (placeholders, references, code reading env vars, "key:" prose); `openai_typed` joins the
+  synthetic secrets (the second synthetic pass now shifts templates, so equal texts aren't dropped).
+- Measured: `secrets` catches 100% on golden (16/16) and extended (73/73), FPR 0% on both. New e2e
+  scenario `e2e-sec-typed-key` (the leak, recorded live): leaks with the guard off, stopped as shipped
+  and in enforce. Test ASR guard off → as shipped: 75.0% → 12.5% (8 attack scenarios).
+- Not caused by this change, surfaced by the rebuilt data: the enforced `topic` policy flags "How do I
+  rotate the key stored in SECRET_KEY?" (2 extended decoys, FPR 0% → 3.8%), and ProtectAI (shadow) moves
+  with the new decoys (golden FPR 52.9% → 57.9%). Topic is left as tuned; worth a look before enforcing
+  it more widely.
+
 ## v7
 - `secrets` runs **first** (`redact_first`): when it redacts, the stage's other policies (Presidio,
   toxicity, the NLI check, any LLM-judge rule from the dashboard) get the redacted text, so no model sees
