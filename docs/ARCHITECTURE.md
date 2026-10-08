@@ -1,8 +1,73 @@
-# Architecture: how the guard and the agent fit together
+# Architecture
 
-boundary-ai is one application with one deliberate internal boundary: the guardrails library
-(`boundary_guard`) knows nothing about the agent, and the agent (`apps/agent/`) calls it through one adapter,
-`apps/agent/src/boundary_agent/guarding.py`, at four points of its loop in `agent.py`:
+This is the high-level design: the parts of the system, how a request flows through them, and where each
+decision is made. Detail lives in the linked documents: [API.md](API.md) (every endpoint),
+[MODELS.md](MODELS.md) (every detector and model), [AGENT.md](AGENT.md) (the agent loop),
+[EVAL.md](EVAL.md) (how it is measured), [DEPLOY.md](DEPLOY.md) and [OBSERVABILITY.md](OBSERVABILITY.md).
+
+## System overview
+
+```
+                 ┌──────────────────────────── one host (Caddy, HTTPS) ────────────────────────────┐
+ browser ──────► │  dashboard (Next.js)          agent (FastAPI)                                     │
+ user / admin    │   /login                       /api/* ──► sign-in middleware (roles)              │
+                 │   /chat        (user)          ├─ chat ──► AgentRuntime ──► planner LLM (LiteLLM)  │
+                 │   /guardrails…  (admin)        │            │  ▲                                    │
+                 │                                │            ▼  │ guard checks at 4 stages          │
+                 │                                │       boundary_guard (policies/guard.yaml + rules)│
+                 │                                │            │                                      │
+                 │                                │       policy engine (tool rules) ──► MCP tools    │
+                 │                                ├─ approvals, guard, rules, logs, playground       │
+                 │                                └─ Postgres/SQLite · Redis (events, limits)        │
+                 └───────────────────────────────────────────────────────────────────────────────────┘
+   MCP servers: local sandbox (files) · Exa (web search) · any added in Tools
+   Models: Llama Prompt Guard 2, ProtectAI DeBERTa, MiniLM (topic), Presidio (PII), toxic-bert, NLI (groundedness)
+   Offline: packages/eval (golden / extended / end-to-end evals, CI gates) · Langfuse + Prometheus/Grafana
+```
+
+| Part | Where | Job |
+|---|---|---|
+| Dashboard | `apps/dashboard` (Next.js) | Sign-in; the chat for user accounts; Guardrails, Approvals, Logs, Tools, Playground for admins |
+| Agent | `apps/agent` (FastAPI) | The API, the agent loop, approvals, the policy engine for tool rules, the audit log |
+| Guard library | `packages/guard` (`boundary_guard`) | Runs the policies of a stage over text; knows nothing about the agent |
+| Policies | `policies/` | `guard.yaml` (the reviewed baseline), rulesets, topic exemplars, schemas, `CHANGELOG.md` |
+| Sandbox MCP | `apps/sandbox-mcp` | The file tools the agent uses (list, read, write, delete, search) inside a sandbox folder |
+| Eval | `packages/eval` (`boundary_eval`) | Datasets, detector and end-to-end evals, baselines, CI gates, load test, results write-up |
+| Detector | `packages/detector` | Our own injection detector (training, model card) |
+| Infra | `infra/` | Docker Compose, Caddy, deploy script, smoke test, observability stack |
+
+The one deliberate internal boundary: the guard library knows nothing about the agent, and the agent calls
+it through one adapter, `apps/agent/src/boundary_agent/guarding.py`.
+
+### Inside the agent
+
+| Module | Responsibility |
+|---|---|
+| `main.py` | Builds the app: sign-in middleware, CORS, routers |
+| `services.py` | The runtime objects, built once: settings, guard, agent runtime, policy engine, MCP manager, telemetry, limits, authenticator |
+| `startup.py` | Lifespan: database, MCP servers and tools, default tool rules, stored mode overrides and dashboard rules, guard warm-up, approval sweeper |
+| `api/` | One router per area: `auth`, `chat`, `approvals`, `guard`, `guard_rules`, `tool_policies`, `tools`, `logs`, `system` |
+| `agent.py` | `AgentRuntime`: the loop, approvals, content review, the secret stops |
+| `guarding.py` | Guard adapter, decision sink, user-facing block messages, secret placeholders |
+| `policy.py` | Policy engine for tool rules (block, approval, folders, budgets, taint) |
+| `rules.py` | Dashboard rule spec, compilation into guard policies, dry runs |
+| `auth.py` | Accounts, signed tokens, `required_role(path)` |
+| `playground.py` | Admin playground: scan and attack demo |
+| `llm.py` | The planner (LiteLLM), spotlighting of tool output |
+
+## Request flow
+
+1. The browser signs in (`POST /api/auth/login`) and sends `Authorization: Bearer <token>` on every call.
+   The middleware checks the path's role before any route runs (see "Sign-in and roles").
+2. A user's message (`POST /api/chat`) is checked at **user input**. A secret is redacted and stops the run
+   with a fixed answer; a block or review stops it with a plain message.
+3. The planner proposes a tool call. It is checked at **tool args** by the guard, then by the policy engine
+   (tool rules: block, approval, folders, budgets, taint). It runs only if both allow it.
+4. The tool's result is checked at **tool output**. Injection marks the run tainted, so later writes need
+   approval.
+5. The loop repeats until the planner answers. The answer is checked at **final output**.
+6. Every check is recorded (`guard_decisions`, audit events). The dashboard refreshes over server-sent
+   events; users' chats poll while a request waits for approval.
 
 ```
 user ──► USER_INPUT ──► planner ──► TOOL_ARGS ──► policy engine ──► MCP tool ──► TOOL_OUTPUT ──┐
@@ -15,12 +80,18 @@ user ──► USER_INPUT ──► planner ──► TOOL_ARGS ──► policy
 
 | Stage | `block` | `redact` | `escalate` |
 |---|---|---|---|
-| user input | run ends: "Request blocked by the guard" | redacted text goes to the planner, the message history, the audit log and the conversation title | content review; the run pauses |
+| user input | run ends with a plain message (below) | redacted text goes to the planner, the message history, the audit log and the conversation title; a redacted **secret** ends the run (see "Secrets in the user's own message") | content review; the run pauses |
 | tool args | tool call blocked (like a policy-engine block) | treated as block: arguments are never rewritten | tool-call approval (the existing approval flow) |
 | tool output | the planner gets `{"withheld_by_guard": …}` and the loop continues (`GUARD_TOOL_OUTPUT_ON_BLOCK=halt` ends the run instead) | redacted result; the MCP `raw` copy (which repeats the content) is dropped | content review; approve passes the content on, deny withholds it and the run continues |
 | final output | answer withheld | redacted answer | content review; approve releases the answer |
 
 `flag` and shadow-mode decisions change nothing in the run; they are recorded.
+
+**What the user is told.** Never the detector's reasons. A block ends with a plain sentence chosen by what
+the stopping policy detects (injection, off-topic, toxicity, secret, personal data) or by the stage, plus a
+run reference (`guarding.user_block_message`); a policy or dashboard rule can set its own `message`.
+Scores, exemplars, policy ids and keywords stay in the logs and are not given to the model either.
+Blocks, stops and approval waits are stored with `metadata.notice`, and the chat shows them as notices.
 
 Guard checks happen **before** anything is persisted, so a withheld or redacted value never reaches
 the `messages` table, the audit log, or the SSE stream in raw form (tested in
@@ -53,9 +124,15 @@ then said it had written the key. Two deterministic stops prevent that:
 - when a secrets policy (`detects: [secret]`) redacts the user's message, the run ends before the
   planner with a fixed answer (the secret was removed before it was read, nothing was done, add it
   yourself), audited as `guard.secret_withheld`;
-- a tool call whose arguments carry a secret's placeholder (a label from those policies' rulesets, or
-  `KNOWN_SECRET`) is refused before it runs (`guard.secret_placeholder_blocked`). Placeholders for
-  personal data (`<EMAIL_1>`) still reach tools: a note that mentions a redacted address is fine.
+- a tool call that **assigns** a secret's placeholder as a value (`OPENAI_API_KEY=<OPENAI_KEY_1>`, in any
+  case, templating or URL/HTML encoding; labels from those policies' rulesets, or `KNOWN_SECRET`) is
+  refused before it runs (`guard.secret_placeholder_blocked`), while a secrets policy enforces. A
+  placeholder merely mentioned (a note about a redacted log) and personal-data placeholders (`<EMAIL_1>`)
+  still reach tools.
+
+Detection itself has two layers: the ~216 provider formats imported from gitleaks (run on RE2, linear
+time) and context rules (a known provider prefix at any length, credential-named `.env` lines). See
+[MODELS.md](MODELS.md) and `policies/CHANGELOG.md` (v5 to v9).
 
 ## Content review
 
@@ -194,4 +271,5 @@ with a child per policy), and the guard's decisions are Prometheus metrics via t
 also covers the playground and its abuse controls.
 
 What all of this costs, and how well it works, is measured rather than claimed: see
-[RESULTS.md](RESULTS.md) (generated from the committed eval, end-to-end and load-test results).
+[RESULTS.md](RESULTS.md) (generated from the committed eval, end-to-end and load-test results) and
+[MODELS.md](MODELS.md) (per-detector numbers).

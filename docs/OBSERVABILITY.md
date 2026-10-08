@@ -1,7 +1,8 @@
 # Observability and the playground
 
 Phase 10 adds three things to the agent: **traces** (Langfuse), **metrics** (Prometheus, with a
-committed Grafana dashboard), and a **public playground** with abuse controls. Everything here is
+committed Grafana dashboard), and a **playground** with abuse controls (public in Phase 10; admin-only
+since sign-in, see [ARCHITECTURE.md](ARCHITECTURE.md)). Everything here is
 optional: with no Langfuse keys, tracing is a no-op; Prometheus and Grafana only run when you ask
 for them.
 
