@@ -4,7 +4,9 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { StartMode } from "@/components/rule-editor";
 import { apiGet, apiSend } from "@/lib/api";
+import { apiErrorText } from "@/lib/errors";
 import { MCPTool, Policy } from "@/lib/types";
+import { useEscape } from "@/lib/use-escape";
 
 type Kind = "require_approval" | "block_tool" | "validate_args" | "guard_signal" | "token_budget" | "cost_budget";
 
@@ -83,18 +85,6 @@ function formFromPolicy(p: Policy): Form {
   };
 }
 
-function errorText(e: unknown): string {
-  const raw = String(e instanceof Error ? e.message : e);
-  try {
-    const detail = JSON.parse(raw).detail;
-    if (typeof detail === "string") return detail;
-    if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg).replace(/^Value error, /, "");
-    return JSON.stringify(detail);
-  } catch {
-    return raw;
-  }
-}
-
 /** Create or edit a rule that decides tool calls (the policy engine). */
 export function ToolRuleEditor({
   policy,
@@ -121,11 +111,7 @@ export function ToolRuleEditor({
   useEffect(() => {
     apiGet<MCPTool[]>("/api/mcp/tools").then(setTools).catch(() => undefined);
   }, []);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !saving && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, saving]);
+  useEscape(onClose, !saving);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -176,7 +162,7 @@ export function ToolRuleEditor({
         );
       }
     } catch (e) {
-      setError(errorText(e));
+      setError(apiErrorText(e));
     } finally {
       setSaving(false);
     }

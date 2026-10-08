@@ -7,6 +7,7 @@ import { apiGet, apiSend } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { MCPServer, MCPTool } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
+import { useEscape } from "@/lib/use-escape";
 
 const STATUS: Record<string, { label: string; tone: string }> = {
   connected: { label: "Connected", tone: "ok" },
@@ -43,11 +44,7 @@ function AddServer({ onClose, onSaved }: { onClose: () => void; onSaved: (messag
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscape(onClose, !saving);
 
   async function submit(event: FormEvent) {
     event.preventDefault();

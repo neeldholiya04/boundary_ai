@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { STAGE_NAMES } from "@/lib/format";
 
 import { apiGet, apiSend } from "@/lib/api";
+import { apiErrorText } from "@/lib/errors";
 import {
   AttackResult,
   AttackRun,
@@ -34,16 +35,6 @@ const ACTION_WORD: Record<string, string> = {
   escalate: "Held for a person",
   block: "Blocked"
 };
-
-function errorMessage(error: unknown): string {
-  const text = String(error instanceof Error ? error.message : error);
-  try {
-    const parsed = JSON.parse(text);
-    return typeof parsed.detail === "string" ? parsed.detail : text;
-  } catch {
-    return text;
-  }
-}
 
 /** Split `text` into plain and highlighted segments from (possibly overlapping) spans. */
 function segments(text: string, spans: ScanSpan[]) {
@@ -111,7 +102,7 @@ function ScanPanel() {
       setSubmitted(text);
       setResult(r);
     } catch (e) {
-      setNote(errorMessage(e));
+      setNote(apiErrorText(e));
     } finally {
       setBusy(false);
     }
@@ -279,7 +270,7 @@ function AttackPanel() {
         setCatalog(c);
         setScenarioId(c.scenarios[0]?.id ?? "");
       })
-      .catch((e) => setNote({ text: errorMessage(e), error: true }));
+      .catch((e) => setNote({ text: apiErrorText(e), error: true }));
   }, []);
 
   const selected = catalog?.scenarios.find((s) => s.id === scenarioId) ?? null;
@@ -293,7 +284,7 @@ function AttackPanel() {
       setResult(await apiSend<AttackResult>("/api/playground/attack", { method: "POST", body: JSON.stringify(body) }));
       setNote(null);
     } catch (e) {
-      setNote({ text: errorMessage(e), error: true });
+      setNote({ text: apiErrorText(e), error: true });
     } finally {
       setBusy(false);
     }

@@ -49,7 +49,8 @@ async def api(monkeypatch):
     import httpx
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-    from boundary_agent import main
+    from boundary_agent import main, services
+    from boundary_agent.api import auth as auth_api
     from boundary_agent.db import Base, get_session
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -61,11 +62,11 @@ async def api(monkeypatch):
         async with factory() as s:
             yield s
 
-    monkeypatch.setattr(main.settings, "auth_required", True)
+    monkeypatch.setattr(services.settings, "auth_required", True)
     monkeypatch.setattr(
-        main, "authenticator", Authenticator("ann:pw1:user,bob:pw2:user,root:pw3:admin", "k", 1)
+        services, "authenticator", Authenticator("ann:pw1:user,bob:pw2:user,root:pw3:admin", "k", 1)
     )
-    monkeypatch.setattr(main, "_login_failures", {})
+    monkeypatch.setattr(auth_api, "login_failures", {})
     main.app.dependency_overrides[get_session] = session
     transport = httpx.ASGITransport(app=main.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

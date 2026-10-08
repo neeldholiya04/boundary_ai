@@ -142,7 +142,7 @@ async def api(monkeypatch, tmp_path):
     import httpx
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-    from boundary_agent import main
+    from boundary_agent import main, services
     from boundary_agent.db import Base, get_session
     from boundary_guard import Guard, GuardConfig
 
@@ -172,8 +172,8 @@ async def api(monkeypatch, tmp_path):
         ),
         base_dir=tmp_path,
     )
-    monkeypatch.setattr(main, "guard", file_guard)
-    monkeypatch.setattr(main, "guard_policy_path", POLICIES / "guard.yaml")
+    monkeypatch.setattr(services, "guard", file_guard)
+    monkeypatch.setattr(services, "guard_policy_path", POLICIES / "guard.yaml")
     main.app.dependency_overrides[get_session] = session
     transport = httpx.ASGITransport(app=main.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -282,7 +282,7 @@ async def test_rule_dry_run_endpoint(api):
 
 
 async def test_rules_reload_at_startup_and_a_broken_one_is_isolated(api, monkeypatch):
-    from boundary_agent import main
+    from boundary_agent.api import guard_rules as guard_rules_api
     from boundary_agent.models import GuardRule
 
     client, live, factory = api
@@ -299,7 +299,7 @@ async def test_rules_reload_at_startup_and_a_broken_one_is_isolated(api, monkeyp
     live.remove_policy("rule_no_project_codenames")  # as after a restart
 
     async with factory() as s:
-        await main._load_guard_rules(s)
+        await guard_rules_api.load_guard_rules(s)
         await s.commit()
     assert "rule_no_project_codenames" in live.policy_ids
     assert "rule_broken" not in live.policy_ids
@@ -312,10 +312,10 @@ async def test_rules_reload_at_startup_and_a_broken_one_is_isolated(api, monkeyp
 
 
 async def test_rules_need_the_guard(api, monkeypatch):
-    from boundary_agent import main
+    from boundary_agent import services
 
     client, _, _ = api
-    monkeypatch.setattr(main, "guard", None)
+    monkeypatch.setattr(services, "guard", None)
     assert (await client.post("/api/guard/rules", json=CODENAME)).status_code == 409
 
 

@@ -10,6 +10,6 @@ import pytest
 def _auth_off(request, monkeypatch):
     if request.node.get_closest_marker("auth"):
         return
-    from boundary_agent import main
+    from boundary_agent import services
 
-    monkeypatch.setattr(main.settings, "auth_required", False)
+    monkeypatch.setattr(services.settings, "auth_required", False)

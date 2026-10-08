@@ -163,11 +163,11 @@ async def test_policies_that_would_do_nothing_are_rejected(api, body, message):
 
 
 async def test_default_policies_are_created_once_and_stay_deleted(api):
-    from boundary_agent import main
+    from boundary_agent import startup
 
     _, factory = api
     async with factory() as session:
-        await main._seed_guard_signal_policies(session)
+        await startup.seed_guard_signal_policies(session)
         await session.commit()
         defaults = (await session.scalars(select(Policy))).all()
         assert {p.target_tool for p in defaults} == {"write_file", "delete_file"}
@@ -177,13 +177,13 @@ async def test_default_policies_are_created_once_and_stay_deleted(api):
 
     # A restart doesn't bring them back.
     async with factory() as session:
-        await main._seed_guard_signal_policies(session)
+        await startup.seed_guard_signal_policies(session)
         await session.commit()
         assert (await session.scalars(select(Policy))).all() == []
 
 
 async def test_databases_seeded_before_the_marker_are_not_seeded_again(api):
-    from boundary_agent import main
+    from boundary_agent import startup
 
     _, factory = api
     async with factory() as session:
@@ -192,7 +192,7 @@ async def test_databases_seeded_before_the_marker_are_not_seeded_again(api):
             Policy(name="Old default", rule_type="guard_signal", enabled=True, target_tool="write_file")
         )
         await session.commit()
-        await main._seed_guard_signal_policies(session)
+        await startup.seed_guard_signal_policies(session)
         await session.commit()
         names = sorted(p.name for p in (await session.scalars(select(Policy))).all())
         assert names == ["Approve writes", "Old default"]
@@ -240,7 +240,7 @@ async def test_budget_limits_must_be_numbers_not_booleans(api):
 
 
 async def test_defaults_seeded_before_the_marker_are_labelled(api):
-    from boundary_agent import main
+    from boundary_agent import startup
 
     _, factory = api
     async with factory() as session:
@@ -254,7 +254,7 @@ async def test_defaults_seeded_before_the_marker_are_labelled(api):
             )
         )
         await session.commit()
-        await main._seed_guard_signal_policies(session)
+        await startup.seed_guard_signal_policies(session)
         await session.commit()
         [p] = (await session.scalars(select(Policy))).all()
         assert p.action_json == {"verdict": "require_approval", "default": True}

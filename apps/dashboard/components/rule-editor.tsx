@@ -3,6 +3,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiSend } from "@/lib/api";
+import { apiErrorText } from "@/lib/errors";
+import { useEscape } from "@/lib/use-escape";
 import {
   CheckTypes,
   GuardRule,
@@ -178,16 +180,6 @@ function specFromDraft(draft: Draft, mode: RuleSpec["mode"], base?: RuleSpec): R
 }
 
 /** The API answers 422 with pydantic's message; show the human part of it. */
-function errorText(e: unknown): string {
-  const raw = String(e instanceof Error ? e.message : e);
-  try {
-    const detail = JSON.parse(raw).detail;
-    return typeof detail === "string" ? detail : JSON.stringify(detail);
-  } catch {
-    return raw;
-  }
-}
-
 export function RuleEditor({
   rule,
   onClose,
@@ -247,7 +239,7 @@ export function RuleEditor({
         })
       );
     } catch (e) {
-      setError(errorText(e));
+      setError(apiErrorText(e));
     } finally {
       setBusy(null);
     }
@@ -272,20 +264,13 @@ export function RuleEditor({
             : `Created ${saved.spec.name}. It applies from the next message.`
       );
     } catch (e) {
-      setError(errorText(e));
+      setError(apiErrorText(e));
     } finally {
       setBusy(null);
     }
   }
 
-  // Escape closes; the name field gets focus when the editor opens.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && busy === null) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [busy, onClose]);
+  useEscape(onClose, busy === null);
 
   return (
     <div className="modal-backdrop" role="presentation">

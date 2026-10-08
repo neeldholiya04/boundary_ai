@@ -18,6 +18,7 @@ import {
   Policy
 } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
+import { useEscape } from "@/lib/use-escape";
 
 const STAGE_ORDER: GuardStage[] = ["user_input", "tool_args", "tool_output", "final_output"];
 
@@ -418,11 +419,7 @@ export default function GuardrailsPage() {
 
 /** First step of "New rule": what the rule looks at decides which engine runs it. */
 function NewRuleChooser({ onClose, onPick }: { onClose: () => void; onPick: (kind: "text" | "tool") => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscape(onClose);
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div
