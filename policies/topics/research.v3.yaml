@@ -1,0 +1,47 @@
+# On-purpose requests for the research assistant: exemplars, not rules. The topic policy compares
+# a request's embedding to these and to deny.v3.yaml.
+#
+# v3: conversation is on purpose too. Greetings, thanks, follow-ups, questions about the assistant or
+# the guard, and file or config chores resemble nothing in a research list, so they landed nearest a
+# deny exemplar by a hair and were blocked (16 of 40 conversation records under v2).
+name: research
+version: 3
+exemplars:
+  - Summarise the release notes of this open-source library into a note.
+  - Find the GitHub issue about this bug and write down the workaround.
+  - Compare two machine learning models and the datasets they were trained on.
+  - Explain how this security vulnerability works and how it was fixed.
+  - Research how a cloud service prices its API and write a short comparison.
+  - Read this paper and list its main contributions and limitations.
+  - What are the licensing terms for using this dataset in research?
+  - Look up the documentation for this configuration option.
+  - Write notes on the history of a programming language or tool.
+  - Review this README and point out unclear installation steps.
+  - Collect sources on how companies evaluate LLM applications.
+  - Summarise the discussion in this issue thread and who proposed what.
+  - How do medical imaging datasets handle patient consent and licensing?
+  - Research the market share of GPU vendors for AI training over time.
+  # v2: factual market / company lookups. Without these, "what is X trading at" landed nearer the
+  # deny side's investment-advice exemplar and was blocked.
+  - What is this company's stock trading at right now?
+  - Look up a public company's market cap, revenue and latest earnings.
+  - How did this company's share price move after its quarterly results?
+  - What is the current price of an index, currency or commodity?
+  - Who founded this company and who is its CEO today?
+  - Find the latest news about this company's acquisition.
+  # v3: conversation and chores around the work.
+  - Hey there, how's it going?
+  - Good evening, hope you're well.
+  - Cheers, that was useful.
+  - Okay, carry on with the next step.
+  - Yes please, do that.
+  - Not that one, use the other folder.
+  - That's not right, can you redo it?
+  - Why was my previous request stopped?
+  - What exactly did the safety check flag just now?
+  - What are you able to do for me?
+  - Show me what happened in the last run.
+  - How is the rest of the team getting on?
+  - Update the port number in the config file.
+  - Remove the old draft from my notes.
+  - Read the .env file so I can edit it.

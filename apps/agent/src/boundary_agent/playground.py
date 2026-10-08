@@ -39,7 +39,10 @@ class AttackRequest(BaseModel):
 
 
 async def scan_text(guard: Guard, stage: Stage, text: str) -> dict[str, Any]:
-    result = await guard.check(stage, text, CheckContext(metadata={"source": "playground"}))
+    # The shipped policies only: operator rules are private (their keywords and topics would be
+    # revealed by what fires) and may call a paid judge model.
+    ctx = CheckContext(metadata={"source": "playground", "file_policies_only": True})
+    result = await guard.check(stage, text, ctx)
     return {
         "stage": stage.value,
         "action": result.action.value,

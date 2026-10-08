@@ -9,14 +9,29 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from boundary_eval.dataset import LoadedRecord, Split
 from boundary_eval.metrics import Confusion, percentile
-from boundary_guard import Action, DecisionEvent, Guard, Mode, PolicyDecision, Stage
+from boundary_guard import Action, DecisionEvent, Guard, Mode, PolicyDecision, Stage, load_config
 
 SCHEMA_VERSION = 1
 _RECORD_KEY = "eval_record_id"
 _NO_TIMEOUT_MS = 10 * 60 * 1000  # effectively unlimited for a single check
+
+
+def eval_guard(policy_path: str | Path, **kwargs: Any) -> Guard:
+    """The guard an eval runs: the policy file as shipped, minus `known_secrets_env`.
+
+    Known secrets are this machine's own credentials, so with them a run's verdicts would depend on
+    whoever runs it (and the playground's attack mode, which runs through here, could be used to
+    confirm a guess of one). Evals measure the rules, which every machine shares.
+    """
+    path = Path(policy_path)
+    config = load_config(path)
+    for policy in config.policies:
+        (policy.detector.model_extra or {}).pop("known_secrets_env", None)
+    return Guard(config, base_dir=path.parent, **kwargs)
 
 
 @dataclass(slots=True)

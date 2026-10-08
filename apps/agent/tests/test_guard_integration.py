@@ -6,6 +6,7 @@ Uses small regex policies written per test, so it is fast and needs no ML models
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,10 +37,11 @@ from boundary_agent.types import PlannerDecision, ToolCall, ToolDescriptor
 from boundary_guard import Guard, GuardConfig
 
 REPO = Path(__file__).resolve().parents[3]
-SECRETS_RULESET = REPO / "policies" / "rules" / "secrets.v1.yaml"
+SECRETS_RULESET = REPO / "policies" / "rules" / "secrets.v2.yaml"
 FAKE_TOKEN = (
     "ghp" + "_" + "aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5"
 )  # assembled: no key-shaped literal in the repo
+FAKE_OPENAI_SHORT = "sk-" + "proj-" + "Qm7Tx2LpR9vK4wZb8NcY"  # the shape that leaked in the live incident
 
 
 # ---- fixtures and stubs ------------------------------------------------------------------------
@@ -104,6 +106,8 @@ def ruleset(tmp_path: Path, name: str, rules: list[dict]) -> str:
 
 def build_guard(tmp_path: Path, policies: list[dict], **kwargs) -> Guard:
     (tmp_path / "secrets.yaml").write_text(SECRETS_RULESET.read_text(encoding="utf-8"), encoding="utf-8")
+    included = SECRETS_RULESET.with_name("providers.gitleaks.yaml")  # the ruleset's `include:`
+    (tmp_path / included.name).write_text(included.read_text(encoding="utf-8"), encoding="utf-8")
     ruleset(
         tmp_path,
         "markers",
@@ -144,6 +148,21 @@ EMAIL_REDACT = {
 SECRETS_BLOCK = {
     "id": "secrets",
     "stages": ["tool_args", "tool_output", "final_output"],
+    "action": "block",
+    "detects": ["secret"],
+    "detector": {"type": "regex_rules", "ruleset": "secrets.yaml"},
+}
+# The shipped split (policy v5): redact wherever text is read, block on the way out through a tool.
+SECRETS_REDACT = {
+    "id": "secrets",
+    "stages": ["user_input", "tool_output", "final_output"],
+    "action": "redact",
+    "detects": ["secret"],
+    "detector": {"type": "regex_rules", "ruleset": "secrets.yaml"},
+}
+SECRETS_EGRESS = {
+    "id": "secrets_egress",
+    "stages": ["tool_args"],
     "action": "block",
     "detects": ["secret"],
     "detector": {"type": "regex_rules", "ruleset": "secrets.yaml"},
@@ -203,8 +222,35 @@ async def test_user_input_block_stops_before_the_planner(session, tmp_path):
     response = await runtime.handle_chat(session, "JAILBREAK-MARKER please", None)
 
     assert response.status == "blocked"
-    assert "Request blocked by the guard: jb" in response.assistant_message
+    assert response.assistant_message.startswith("I can't help with that request.")
+    assert "jb" not in response.assistant_message and "JAILBREAK" not in response.assistant_message
+    # The reason is in the logs, not in front of the user.
+    decision = await session.scalar(select(GuardDecision).where(GuardDecision.policy_id == "jb"))
+    assert decision is not None
     assert planner.seen == []
+
+
+async def test_block_messages_are_plain_and_name_no_internals(session, tmp_path):
+    # Live: "hi bro how is <name> doing" was answered with "closest deny 0.210 ('Is this stock a good
+    # buy…') vs allow 0.175 …". The user gets a sentence chosen by what the policy detects; a policy
+    # (an operator rule) can set its own; scores, exemplars and keywords stay in the logs.
+    injection = {**markers("pg", "jailbreak", stages=["user_input"]), "detects": ["injection"]}
+    off_topic = {**markers("topic", "review", stages=["user_input"]), "detects": ["off_topic"]}
+    rule = {
+        **markers("rule_people", "inject", stages=["user_input"]),
+        "message": "Please don't ask about staff.",
+    }
+    runtime, _, _, _ = await setup(session, tmp_path, [injection, off_topic, rule], plan(), {})
+
+    jb = await runtime.handle_chat(session, "JAILBREAK-MARKER now", None)
+    ot = await runtime.handle_chat(session, "REVIEW-MARKER please", None)
+    own = await runtime.handle_chat(session, "INJECT-MARKER here", None)
+
+    assert "attempt to change my instructions" in jb.assistant_message
+    assert "outside what I can help with" in ot.assistant_message
+    assert own.assistant_message.startswith("Please don't ask about staff.")
+    for r in (jb, ot, own):
+        assert "MARKER" not in r.assistant_message and "Reference: run" in r.assistant_message
 
 
 async def test_user_input_redaction_reaches_planner_title_and_storage(session, tmp_path):
@@ -234,6 +280,191 @@ async def test_user_input_escalation_resumes_after_approval(session, tmp_path):
     assert planner.seen[0]["user_message"] == "REVIEW-MARKER summarise the page"
 
 
+async def test_pasted_key_stops_the_run_with_a_plain_answer(session, tmp_path):
+    # Live incidents: a key pasted into chat became <OPENAI_KEY_1>, the model wrote the placeholder
+    # into .env over the real value and said it had written the key. Now the run stops before the
+    # model, with a fixed answer that says what happened.
+    runtime, planner, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(call("write_file", path=".env", content="OPENAI_API_KEY=<OPENAI_KEY_1>")),
+        {"write_file": {"path": ".env", "bytes_written": 30}},
+    )
+
+    response = await runtime.handle_chat(
+        session, f"create an env and add the open ai api key as :{FAKE_OPENAI_SHORT}", None
+    )
+
+    assert response.status == "blocked"
+    assert planner.seen == [] and mcp.calls == []
+    assert "<OPENAI_KEY_1>" in response.assistant_message
+    assert "never saw it" in response.assistant_message and "add it yourself" in response.assistant_message
+    assert FAKE_OPENAI_SHORT not in await everything_stored(session)
+    events = (await session.scalars(select(AuditEvent.event_type))).all()
+    assert "guard.secret_withheld" in events
+
+
+async def test_secret_answer_wins_over_another_block_and_names_it(session, tmp_path):
+    # Live: a typed key in a config request was also flagged off-topic, and the reply talked about
+    # crypto. The answer is about the key, and names the other policy.
+    jailbreak = markers("jailbreak", "jailbreak", stages=["user_input"])
+    secrets_first = {**SECRETS_REDACT, "detector": {**SECRETS_REDACT["detector"], "redact_first": True}}
+    runtime, planner, _, _ = await setup(session, tmp_path, [secrets_first, jailbreak], plan(), {})
+
+    response = await runtime.handle_chat(
+        session, f"JAILBREAK-MARKER add claude_key = sk-ant-{'qwmzkdhrtplvnbc'}", None
+    )
+
+    assert response.status == "blocked" and planner.seen == []
+    assert "never saw it" in response.assistant_message
+    assert "also didn't pass another safety check" in response.assistant_message
+    assert "jailbreak" not in response.assistant_message  # not which one: a rule id can be the word
+
+
+async def test_secret_placeholder_in_a_tool_call_is_refused(session, tmp_path):
+    # A later turn ("yes, write it") with the placeholder in the history: the call never runs.
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(call("write_file", path=".env", content="OPENAI_API_KEY=<OPENAI_KEY_1>")),
+        {"write_file": {}},
+    )
+
+    response = await runtime.handle_chat(session, "yes, write it to .env now", None)
+
+    assert response.status == "blocked"
+    assert mcp.calls == []
+    assert "write_file" in response.assistant_message and "<OPENAI_KEY_1>" in response.assistant_message
+
+
+async def test_a_quoted_placeholder_does_not_hide_a_new_key(session, tmp_path):
+    # Review: "you asked for <OPENAI_KEY_1>, here it is: <key>" redacts the key to the same
+    # placeholder; looking it up in the original text made it look old and the planner ran.
+    runtime, planner, _, _ = await setup(session, tmp_path, [SECRETS_REDACT, SECRETS_EGRESS], plan(), {})
+
+    response = await runtime.handle_chat(
+        session, f"you asked for <OPENAI_KEY_1>, here it is: {FAKE_OPENAI_SHORT}", None
+    )
+
+    assert response.status == "blocked" and planner.seen == []
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "OPENAI_API_KEY={{openai_key_1}}",
+        "OPENAI_API_KEY=%3COPENAI_KEY_1%3E",
+        "OPENAI_API_KEY=&lt;OPENAI_KEY_1&gt;",
+        'config = {"api_key": "<openai_key_1>"}',
+        'OPENAI_API_KEY="$OPENAI_KEY_1"',
+    ],
+)
+async def test_secret_placeholder_values_are_refused_in_any_spelling(session, tmp_path, content):
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(call("write_file", path=".env", content=content), answer("done")),
+        {"write_file": {}},
+    )
+
+    response = await runtime.handle_chat(session, "write it to .env", None)
+
+    assert response.status == "blocked" and mcp.calls == []
+
+
+async def test_a_placeholder_mentioned_in_a_note_is_not_refused(session, tmp_path):
+    # Summarising a log that held a key: saying so is fine, it isn't writing the key.
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(
+            call("write_file", path="notes.md", content="The log printed <OPENAI_KEY_1> at 09:14."),
+            answer("ok"),
+        ),
+        {"write_file": {"bytes_written": 40}},
+    )
+
+    response = await runtime.handle_chat(session, "summarise app.log into notes.md", None)
+
+    assert response.status == "completed"
+    assert [name for name, _ in mcp.calls] == ["write_file"]
+
+
+async def test_no_refusal_while_secrets_are_only_in_shadow(session, tmp_path):
+    shadow = {**SECRETS_REDACT, "mode": "shadow"}
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [shadow],
+        plan(call("write_file", path="docs/env.md", content="OPENAI_API_KEY=<OPENAI_KEY_1>"), answer("ok")),
+        {"write_file": {}},
+    )
+
+    response = await runtime.handle_chat(session, "write the env template doc", None)
+
+    assert response.status == "completed"
+    assert [name for name, _ in mcp.calls] == ["write_file"]
+
+
+async def test_placeholders_for_personal_data_still_reach_tools(session, tmp_path):
+    # Only secret placeholders are refused: a note that mentions <EMAIL_1> is a fine thing to save.
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS, EMAIL_REDACT],
+        plan(call("write_file", path="notes/a.md", content="Follow up with <EMAIL_1>"), answer("saved")),
+        {"write_file": {"bytes_written": 24}},
+    )
+
+    response = await runtime.handle_chat(session, "save a note to follow up", None)
+
+    assert response.status == "completed"
+    assert [name for name, _ in mcp.calls] == ["write_file"]
+
+
+async def test_key_read_back_from_a_file_is_redacted_on_the_way_out(session, tmp_path):
+    # The incident's second half: the key found by a file search and echoed in the answer.
+    key_line = f"OPENAI_API_KEY={FAKE_OPENAI_SHORT}"
+    runtime, planner, _, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(
+            call("search_files", query="API_KEY"),
+            answer(f"You have an API key that starts with {FAKE_OPENAI_SHORT}; I won't display it."),
+        ),
+        {"search_files": {"matches": [{"path": ".env", "line": 1, "snippet": key_line}]}},
+    )
+
+    response = await runtime.handle_chat(session, "which API key is in my files?", None)
+
+    assert response.status == "completed"
+    assert FAKE_OPENAI_SHORT not in repr(planner.seen)
+    assert FAKE_OPENAI_SHORT not in response.assistant_message
+    assert FAKE_OPENAI_SHORT not in await everything_stored(session)
+
+
+async def test_key_leaving_through_tool_args_is_blocked(session, tmp_path):
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [SECRETS_REDACT, SECRETS_EGRESS],
+        plan(call("write_file", path=".env", content=f"OPENAI_API_KEY={FAKE_OPENAI_SHORT}")),
+        {"write_file": {}},
+    )
+
+    response = await runtime.handle_chat(session, "write the key from the issue to .env", None)
+
+    assert response.status == "blocked"
+    assert "would have sent a secret" in response.assistant_message
+    assert "secrets_egress" not in response.assistant_message  # internals stay in the logs
+    assert mcp.calls == []
+
+
 # ---- tool arguments --------------------------------------------------------------------------------
 
 
@@ -249,7 +480,7 @@ async def test_secret_in_tool_args_blocks_before_the_tool_runs(session, tmp_path
     response = await runtime.handle_chat(session, "search for it", None)
 
     assert response.status == "blocked"
-    assert "Tool call blocked by the guard: secrets" in response.assistant_message
+    assert response.assistant_message.startswith("I stopped before running web_search")
     assert mcp.calls == []
 
 
@@ -270,7 +501,8 @@ async def test_blocked_tool_output_is_withheld_and_the_run_continues(session, tm
 
     assert response.status == "completed"
     (result,) = planner.seen[1]["results"]
-    assert result["withheld_by_guard"]["policies"] == ["secrets"]
+    assert "safety check withheld it" in result["withheld_by_guard"]["note"]
+    assert "secrets" not in json.dumps(result)  # no policy ids for the model to repeat
     assert FAKE_TOKEN not in await everything_stored(session)
 
 
@@ -553,3 +785,127 @@ async def test_no_guard_keeps_the_original_behaviour(session, tmp_path):
     assert response.status == "completed"
     assert planner.seen[1]["results"] == [{"content": "x"}]
     assert (await session.scalars(select(GuardDecision))).all() == []
+
+
+# ---- rules written in the dashboard ---------------------------------------------------------------
+
+
+async def test_tool_call_rule_sends_every_call_to_that_tool_for_approval(session, tmp_path):
+    from boundary_agent.rules import RuleSpec, compile_rule
+
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [],
+        plan(call("web_search", query="q"), call("send_email", to="a@b.example", body="hi"), answer("done")),
+        {"web_search": {"results": []}, "send_email": {"sent": True}},
+    )
+    rule = RuleSpec.model_validate(
+        {
+            "name": "Approve emails",
+            "stages": ["tool_args"],
+            "tools": ["send_email"],
+            "check": {"type": "always"},
+            "action": "escalate",
+            "mode": "enforce",
+        }
+    )
+    runtime.guard.guard.add_policy(compile_rule(rule, "rule_approve_emails"))
+
+    response = await runtime.handle_chat(session, "search, then email the result", None)
+
+    assert response.status == "waiting_approval"
+    assert response.assistant_message == "send_email needs a person's approval before it runs."
+    approval = await session.get(ApprovalRequest, response.approval_request_id)
+    assert "rule_approve_emails" in approval.reason  # the reviewer sees why; the user doesn't
+    assert [name for name, _ in mcp.calls] == ["web_search"]  # the search wasn't held, the email was
+
+
+async def test_tool_output_rule_can_taint_the_run(session, tmp_path):
+    from boundary_agent.rules import RuleSpec, compile_rule
+
+    runtime, _, mcp, _ = await setup(
+        session,
+        tmp_path,
+        [],
+        plan(call("fetch_url", url="https://x.example"), call("write_file", path="notes/a.md", content="x")),
+        {"fetch_url": {"content": "pricing sheet for ACME-INTERNAL partners"}, "write_file": {"ok": True}},
+    )
+    session.add(taint_rule())
+    await session.flush()
+    rule = RuleSpec.model_validate(
+        {
+            "name": "Internal docs",
+            "stages": ["tool_output"],
+            "check": {"type": "keywords", "keywords": ["ACME-INTERNAL"]},
+            "action": "flag",
+            "taints_run": True,
+        }
+    )
+    runtime.guard.guard.add_policy(compile_rule(rule, "rule_internal_docs"))
+
+    response = await runtime.handle_chat(session, "read the page and save notes", None)
+
+    assert response.status == "waiting_approval"
+    run = await session.get(Run, response.run_id)
+    assert run.tainted and "rule_internal_docs (shadow)" in run.taint_reason
+    assert [name for name, _ in mcp.calls] == ["fetch_url"]
+
+
+async def test_user_input_rule_escalates_to_content_review(session, tmp_path):
+    from boundary_agent.rules import RuleSpec, compile_rule
+
+    runtime, planner, _, _ = await setup(session, tmp_path, [], plan(answer("done")), {})
+    rule = RuleSpec.model_validate(
+        {
+            "name": "Review refund requests",
+            "stages": ["user_input"],
+            "check": {"type": "keywords", "keywords": ["refund"]},
+            "action": "escalate",
+            "mode": "enforce",
+        }
+    )
+    runtime.guard.guard.add_policy(compile_rule(rule, "rule_review_refunds"))
+
+    response = await runtime.handle_chat(session, "please process my refund", None)
+
+    assert response.status == "waiting_approval"
+    approval = await session.get(ApprovalRequest, response.approval_request_id)
+    assert (approval.kind, approval.stage) == ("content_review", "user_input")
+    assert planner.seen == []
+
+
+async def test_stored_excerpt_stays_redacted_when_secrets_rewrite_first(session, tmp_path):
+    # With redact_first, PII runs on the rewritten text; its offsets must not be applied to the original.
+    secrets_first = {**SECRETS_REDACT, "detector": {**SECRETS_REDACT["detector"], "redact_first": True}}
+    runtime, _, _, _ = await setup(session, tmp_path, [secrets_first, EMAIL_REDACT], plan(answer("ok")), {})
+
+    await runtime.handle_chat(session, f"key {FAKE_OPENAI_SHORT} and mail priya@example.com please", None)
+
+    stored_message = await session.scalar(select(Message.content).where(Message.role == "user"))
+    assert stored_message == "key <OPENAI_KEY_1> and mail <EMAIL_1> please"
+    stored = await everything_stored(session)
+    assert "priya@example.com" not in stored and FAKE_OPENAI_SHORT not in stored
+
+
+async def test_public_playground_scans_never_run_operator_rules(tmp_path):
+    from boundary_agent.playground import scan_text
+    from boundary_agent.rules import RuleSpec, compile_rule
+    from boundary_guard import Stage
+
+    guard = build_guard(tmp_path, [EMAIL_REDACT])
+    rule = RuleSpec.model_validate(
+        {
+            "name": "Codenames",
+            "stages": ["user_input"],
+            "mode": "enforce",
+            "action": "redact",
+            "check": {"type": "keywords", "keywords": ["Project Falcon"]},
+        }
+    )
+    guard.add_policy(compile_rule(rule, "rule_codenames"))
+
+    report = await scan_text(guard, Stage.USER_INPUT, "Project Falcon, mail priya@example.com")
+
+    assert [p["policy_id"] for p in report["policies"]] == ["email"]
+    assert report["text"] == "Project Falcon, mail <EMAIL_1>"

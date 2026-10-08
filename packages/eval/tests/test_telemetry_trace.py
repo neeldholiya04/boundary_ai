@@ -35,7 +35,7 @@ def policy(tmp_path: Path) -> Path:
         "policies:\n"
         "  - id: codes\n"
         "    stages: [user_input]\n"
-        "    detects: [secret]\n"
+        "    detects: [pii]\n"  # personal data: redacted and the run goes on (a secret would stop it)
         "    action: redact\n"
         "    detector: {type: regex_rules, ruleset: rules.yaml, rules: [code]}\n"
         "  - id: tool_output_injection\n"

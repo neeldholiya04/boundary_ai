@@ -131,3 +131,18 @@ async def test_timeouts_are_lifted_by_default_and_restored(tmp_path):
     enforced = to_result(await run_detectors(Guard(make_config(slow)), records, enforce_timeouts=True))
     assert enforced["policies"]["slow"]["errors"] == 4
     assert enforced["meta"]["timeouts"] == "enforced"
+
+
+def test_eval_guard_never_loads_known_secrets(tmp_path, monkeypatch):
+    # Evals measure rules every machine shares; this machine's own keys would make verdicts (and the
+    # playground's attack demo, which runs through here) depend on who runs them.
+    from boundary_eval.runner import eval_guard
+
+    (tmp_path / "rules.yaml").write_text("name: r\nrules:\n  - id: x\n    pattern: 'NEVER'\n")
+    (tmp_path / "guard.yaml").write_text(
+        "version: 1\npolicies:\n  - id: s\n    stages: [final_output]\n    action: redact\n"
+        "    detector: {type: regex_rules, ruleset: rules.yaml, known_secrets_env: ['*_API_KEY']}\n"
+    )
+    monkeypatch.setenv("VENDOR_API_KEY", "a3f9c2e81b7d4f60a95e3c1d8b72f40e6a9c")
+    guard = eval_guard(tmp_path / "guard.yaml")
+    assert "known_secrets_env" not in guard.config.policies[0].detector.params()

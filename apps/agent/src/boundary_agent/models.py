@@ -124,6 +124,8 @@ class Policy(Base):
     name: Mapped[str] = mapped_column(String(120))
     rule_type: Mapped[str] = mapped_column(String(40))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # off / shadow / enforce, like guard rules. Shadow logs what the policy would decide.
+    mode: Mapped[str] = mapped_column(String(16), default="enforce", server_default="enforce")
     priority: Mapped[int] = mapped_column(Integer, default=100)
     target_tool: Mapped[str | None] = mapped_column(String(120), nullable=True)
     target_server_id: Mapped[str | None] = mapped_column(ForeignKey("mcp_servers.id"), nullable=True)
@@ -219,6 +221,23 @@ class GuardOverride(Base):
 
     policy_id: Mapped[str] = mapped_column(String(80), primary_key=True)
     mode: Mapped[str] = mapped_column(String(16))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, server_default=func.now(), onupdate=_now
+    )
+
+
+class GuardRule(Base):
+    """A guard rule written in the dashboard (see rules.py). `spec_json` is the rule as the operator
+    wrote it; it compiles into the guard policy `policy_id`, loaded at startup and on every change.
+    Every change bumps `version` and is audited with the full spec, which is the rule's history."""
+
+    __tablename__ = "guard_rules"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    policy_id: Mapped[str] = mapped_column(String(80), unique=True)
+    spec_json: Mapped[dict] = mapped_column(JSON)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, server_default=func.now(), onupdate=_now
     )

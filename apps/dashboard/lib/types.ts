@@ -40,6 +40,8 @@ export type ChatResponse = {
   }[];
   approval_request_id?: string | null;
   trace_url?: string | null;
+  // What the guard removed from the user's own message (e.g. a pasted key), to show next to the reply.
+  guard_notices?: string[];
 };
 
 export type Policy = {
@@ -47,12 +49,14 @@ export type Policy = {
   name: string;
   rule_type: string;
   enabled: boolean;
+  mode: GuardMode;
   priority: number;
   target_tool: string | null;
   target_server_id: string | null;
   conditions: Record<string, unknown> | null;
   action: Record<string, unknown> | null;
   created_at: string;
+  updated_at: string;
 };
 
 export type Approval = {
@@ -106,6 +110,10 @@ export type MCPTool = {
 
 export type GuardPolicyStatus = {
   id: string;
+  // file: the reviewed baseline in policies/guard.yaml; rule: written in the dashboard.
+  origin: "file" | "rule";
+  description: string | null;
+  tools: string[] | null;
   stages: string[];
   detector: string;
   action: string;
@@ -122,7 +130,77 @@ export type GuardStatus = {
   config_hash?: string;
   modes?: Record<string, number>;
   policies?: GuardPolicyStatus[];
+  rule_errors?: Record<string, string>;
   dropped_async?: number;
+};
+
+// ---- Guard rules (written in the dashboard) --------------------------------------------------
+
+export type RuleCheckType = "keywords" | "pattern" | "topic" | "llm_judge" | "always";
+export type RuleAction = "flag" | "redact" | "escalate" | "block";
+export type GuardMode = "off" | "shadow" | "enforce";
+
+export type RuleCheck = {
+  type: RuleCheckType;
+  keywords?: string[];
+  case_sensitive?: boolean;
+  whole_word?: boolean;
+  fuzzy?: boolean;
+  allow_examples?: string[];
+  margin?: number;
+  patterns?: string[];
+  flags?: string[];
+  examples?: string[];
+  policy?: string;
+  model?: string;
+  threshold?: number;
+  label?: string;
+};
+
+export type RuleSpec = {
+  name: string;
+  description?: string | null;
+  message?: string | null;
+  stages: GuardStage[];
+  tools?: string[] | null;
+  check: RuleCheck;
+  action: RuleAction;
+  mode: GuardMode;
+  execution?: "blocking" | "async";
+  on_error?: "fail_open" | "fail_closed" | null;
+  timeout_ms?: number | null;
+  taints_run?: boolean;
+  tests: { should_fire: string[]; should_pass: string[] };
+};
+
+export type GuardRule = {
+  id: string;
+  policy_id: string;
+  version: number;
+  spec: RuleSpec;
+  active: boolean;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CheckTypeInfo = { type: RuleCheckType; label: string; can_redact: boolean; hint: string };
+export type CheckTypes = { stages: GuardStage[]; tool_stages: GuardStage[]; judge_model: string; checks: CheckTypeInfo[] };
+
+export type RuleVerdict = {
+  fired: boolean;
+  action: string;
+  reasons: string[];
+  error: string | null;
+  redacted: string | null;
+  latency_ms: number;
+};
+
+export type RuleDryRun = {
+  passed: boolean;
+  examples: (RuleVerdict & { text: string; expected: "fire" | "pass"; ok: boolean })[];
+  benign: { checked: number; fired: number; rate: number; samples: { record_id: string; text: string; reasons: string[] }[] } | null;
+  elapsed_ms: number;
 };
 
 export type GuardStat = {

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import random
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from boundary_eval.fakes import GENERATORS
 
 
 class Keyed(dict):
@@ -81,6 +86,8 @@ class Scenario(BaseModel):
     workspace: dict[str, str] = Field(default_factory=dict)
     canary: str | None = None
     notes: str | None = None
+    # Fake credentials this scenario uses, name -> kind (see load_scenarios).
+    fakes: dict[str, str] = Field(default_factory=dict)
     attack_success: list[Check] = Field(default_factory=list)
     task_success: list[Check] = Field(default_factory=list)
 
@@ -106,17 +113,58 @@ def _resolve(responses: ToolResponse | dict[str, ToolResponse], base: Path) -> A
     return Keyed({key: one(r) for key, r in responses.items()})
 
 
+_SECRET_REF = re.compile(r"\{\{secret:([a-z0-9_]+)\}\}")
+
+
+def _fake_values(scenario_id: str, fakes: dict[str, str]) -> dict[str, str]:
+    """Deterministic fake credentials for a scenario's `fakes:` block (name -> kind from fakes.py)."""
+    values = {}
+    for name, kind in fakes.items():
+        if kind not in GENERATORS:
+            raise ValueError(f"scenario {scenario_id}: unknown fake kind {kind!r}")
+        seed = hashlib.sha256(f"{scenario_id}:{name}".encode()).digest()
+        values[name] = GENERATORS[kind](random.Random(seed))
+    return values
+
+
+def _fill(obj: Any, values: dict[str, str], scenario_id: str) -> Any:
+    """Replace `{{secret:name}}` everywhere in a scenario (task, tools, workspace, checks)."""
+    if isinstance(obj, str):
+
+        def sub(m: re.Match[str]) -> str:
+            if m.group(1) not in values:
+                raise ValueError(f"scenario {scenario_id}: {{{{secret:{m.group(1)}}}}} is not in its fakes")
+            return values[m.group(1)]
+
+        return _SECRET_REF.sub(sub, obj)
+    if isinstance(obj, Keyed):
+        return Keyed({k: _fill(v, values, scenario_id) for k, v in obj.items()})
+    if isinstance(obj, dict):
+        return {k: _fill(v, values, scenario_id) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_fill(v, values, scenario_id) for v in obj]
+    return obj
+
+
 def load_scenarios(path: Path, fixture_base: Path) -> tuple[list[Scenario], dict[str, dict[str, Any]]]:
     """Returns (scenarios, resolved responses per scenario id). Fixture paths resolve from
-    `fixture_base` (the repo root), so scenarios reuse the golden fixtures."""
+    `fixture_base` (the repo root), so scenarios reuse the golden fixtures.
+
+    A scenario's `fakes: {name: kind}` defines credentials it uses as `{{secret:name}}`, expanded the
+    same way everywhere, so the files never hold a key-shaped string but checks can still look for it.
+    """
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     items = raw if isinstance(raw, list) else raw.get("scenarios", [])
     scenarios: list[Scenario] = []
     resolved: dict[str, dict[str, Any]] = {}
     for item in items:
-        scenario = Scenario.model_validate(item)
+        values = _fake_values(str(item.get("id")), item.get("fakes") or {})
+        scenario = Scenario.model_validate(_fill(item, values, str(item.get("id"))))
         scenarios.append(scenario)
-        resolved[scenario.id] = {tool: _resolve(resp, fixture_base) for tool, resp in scenario.tools.items()}
+        resolved[scenario.id] = {
+            tool: _fill(_resolve(resp, fixture_base), values, scenario.id)
+            for tool, resp in scenario.tools.items()
+        }
     return scenarios, resolved
 
 

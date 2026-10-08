@@ -95,7 +95,15 @@ def tune_markdown(result: dict[str, Any], max_fpr: float, policy_ids: list[str] 
     for pid, policy in result["policies"].items():
         if policy_ids and pid not in policy_ids:
             continue
-        if not policy["detects"] or policy["detector"] in ("regex_rules", "json_schema"):
+        # Not one score against one threshold: `all_of` combines two models (and a decide-alone band),
+        # `embeddings_topic` has a similarity floor and a word minimum besides its margin. A sweep of
+        # the reported score would recommend thresholds the policy doesn't use.
+        if not policy["detects"] or policy["detector"] in (
+            "regex_rules",
+            "json_schema",
+            "all_of",
+            "embeddings_topic",
+        ):
             continue
         current, best = sweep(result, pid, max_fpr)
         if current is None and best is None:
