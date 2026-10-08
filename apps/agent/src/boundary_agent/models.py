@@ -215,6 +215,17 @@ class GuardDecision(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class LoginFailure(Base):
+    """One failed sign-in from a client address. Kept in the database so the throttle survives a
+    restart and holds across workers; rows older than the window are pruned on the next failure."""
+
+    __tablename__ = "login_failures"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    client: Mapped[str] = mapped_column(String(64), index=True)
+    failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
 class GuardOverride(Base):
     """Runtime mode override for a guard policy (set from the dashboard). Loaded at startup and
     applied to the in-memory Guard, so a shadow/enforce/off change survives a restart."""

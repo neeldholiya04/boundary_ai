@@ -50,7 +50,6 @@ async def api(monkeypatch):
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     from boundary_agent import main, services
-    from boundary_agent.api import auth as auth_api
     from boundary_agent.db import Base, get_session
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -66,7 +65,6 @@ async def api(monkeypatch):
     monkeypatch.setattr(
         services, "authenticator", Authenticator("ann:pw1:user,bob:pw2:user,root:pw3:admin", "k", 1)
     )
-    monkeypatch.setattr(auth_api, "login_failures", {})
     main.app.dependency_overrides[get_session] = session
     transport = httpx.ASGITransport(app=main.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -125,3 +123,36 @@ async def test_repeated_failed_logins_are_throttled(api):
         assert bad.status_code == 401
     blocked = await api.post("/api/auth/login", json={"username": "ann", "password": "pw1"})
     assert blocked.status_code == 429  # even with the right password, until the 5-minute window passes
+
+
+async def _login(client, name, password) -> int:
+    response = await client.post("/api/auth/login", json={"username": name, "password": password})
+    return response.status_code
+
+
+async def test_failed_logins_are_stored_and_a_success_clears_them(api):
+    from sqlalchemy import func, select
+
+    from boundary_agent import main
+    from boundary_agent.db import get_session
+    from boundary_agent.models import LoginFailure
+
+    for _ in range(9):
+        assert (
+            await api.post("/api/auth/login", json={"username": "ann", "password": "x"})
+        ).status_code == 401
+    # Kept in the database (not process memory), so a restart doesn't reset the count.
+    async for session in main.app.dependency_overrides[get_session]():
+        assert await session.scalar(select(func.count()).select_from(LoginFailure)) == 9
+    assert await _login(api, "ann", "pw1") == 200
+    for _ in range(9):  # the count started again from zero
+        assert (
+            await api.post("/api/auth/login", json={"username": "ann", "password": "x"})
+        ).status_code == 401
+
+
+async def test_chat_with_an_unknown_conversation_is_a_404(api):
+    ann = await _token(api, "ann", "pw1")
+    reply = await api.post("/api/chat", json={"conversation_id": "no-such-id", "message": "hi"}, headers=ann)
+    assert reply.status_code == 404
+    assert (await api.get("/api/conversations", headers=ann)).json() == []  # nothing was created

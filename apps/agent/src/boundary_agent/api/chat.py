@@ -126,7 +126,7 @@ async def get_conversation_messages(
 @router.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request, session: AsyncSession = Depends(get_session)):
     account = current_account(request)
-    if payload.conversation_id and await session.get(Conversation, payload.conversation_id) is not None:
+    if payload.conversation_id:  # an unknown id is a 404, not a silently new conversation
         await _owned_conversation(request, session, payload.conversation_id)
     response = await services.agent_runtime.handle_chat(
         session, payload.message, payload.conversation_id, response_schema=payload.response_schema

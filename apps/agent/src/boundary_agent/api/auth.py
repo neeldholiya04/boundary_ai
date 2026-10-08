@@ -3,21 +3,25 @@ see boundary_agent/auth.py."""
 
 from __future__ import annotations
 
-import time
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from boundary_agent import services
 from boundary_agent.auth import current_account, required_role, token_from
+from boundary_agent.db import get_session
+from boundary_agent.models import LoginFailure
 from boundary_agent.schemas import LoginRequest
 
 router = APIRouter(prefix="/api/auth")
 
-# Failed sign-ins per client: 10 per 5 minutes, then wait.
-LOGIN_WINDOW_S = 300
+# Failed sign-ins per client: 10 per 5 minutes, then wait. Counted in the login_failures table, so a
+# restart doesn't reset the count and every worker sees the same one.
+LOGIN_WINDOW = timedelta(minutes=5)
 LOGIN_MAX_FAILURES = 10
-login_failures: dict[str, list[float]] = {}
 
 
 async def require_login(request: Request, call_next):
@@ -37,17 +41,26 @@ async def require_login(request: Request, call_next):
 
 
 @router.post("/login")
-async def login(payload: LoginRequest, request: Request) -> dict:
+async def login(
+    payload: LoginRequest, request: Request, session: AsyncSession = Depends(get_session)
+) -> dict:
     client = request.client.host if request.client else "unknown"
-    now = time.monotonic()
-    recent = [t for t in login_failures.get(client, []) if now - t < LOGIN_WINDOW_S]
-    if len(recent) >= LOGIN_MAX_FAILURES:
+    cutoff = datetime.now(UTC) - LOGIN_WINDOW
+    recent = await session.scalar(
+        select(func.count())
+        .select_from(LoginFailure)
+        .where(LoginFailure.client == client, LoginFailure.failed_at >= cutoff)
+    )
+    if (recent or 0) >= LOGIN_MAX_FAILURES:
         raise HTTPException(status_code=429, detail="Too many failed sign-ins. Try again in a few minutes.")
     account = services.authenticator.login(payload.username.strip(), payload.password)
     if account is None:
-        login_failures[client] = [*recent, now]
+        await session.execute(delete(LoginFailure).where(LoginFailure.failed_at < cutoff))
+        session.add(LoginFailure(client=client))
+        await session.commit()
         raise HTTPException(status_code=401, detail="Wrong username or password.")
-    login_failures.pop(client, None)
+    await session.execute(delete(LoginFailure).where(LoginFailure.client == client))
+    await session.commit()
     return {
         "token": services.authenticator.issue(account),
         "username": account.username,
