@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 
 import { apiGet, apiSend } from "@/lib/api";
@@ -49,6 +50,35 @@ const PRESETS = {
     action: "{\"verdict\":\"require_approval\",\"reason\":\"This run read content flagged as possible prompt injection\"}"
   }
 };
+
+/** One sentence for what a tool policy does, so the list reads without opening the JSON. */
+function describe(policy: Policy): string {
+  const tool = policy.target_tool ?? "any tool";
+  const c = (policy.conditions ?? {}) as Record<string, unknown>;
+  const a = (policy.action ?? {}) as Record<string, unknown>;
+  switch (policy.rule_type) {
+    case "block_tool":
+      return `Blocks every call to ${tool}.`;
+    case "require_approval":
+      return `Every call to ${tool} waits for a human to approve it.`;
+    case "validate_args": {
+      const prefixes = Array.isArray(c.allow_prefixes) ? (c.allow_prefixes as string[]).join(", ") : "";
+      return c.path_arg
+        ? `Calls to ${tool} are blocked unless "${String(c.path_arg)}" is under ${prefixes || "an allowed path"}.`
+        : `Calls to ${tool} are blocked when an argument has a disallowed value.`;
+    }
+    case "token_budget":
+      return `Blocks tool calls once a conversation has used ${String(c.max_tokens ?? "?")} tokens.`;
+    case "cost_budget":
+      return `Blocks tool calls once a conversation has cost $${String(c.max_cost ?? "?")}.`;
+    case "guard_signal":
+      return a.verdict === "block"
+        ? `After the guard flags content in a run, calls to ${tool} are blocked.`
+        : `After the guard flags content in a run, calls to ${tool} need approval.`;
+    default:
+      return policy.rule_type;
+  }
+}
 
 export default function PoliciesPage() {
   const [policies, setPolicies] = useState<Policy[]>([]);
@@ -116,6 +146,11 @@ export default function PoliciesPage() {
       <header className="page-header">
         <div>
           <h2>Policies</h2>
+          <p className="page-lede">
+            Tool policies decide each tool call by its name and arguments: block it, ask for approval, keep
+            paths inside a folder, cap spend, or react once the guard has flagged a run. Rules about what text
+            says live on <Link href="/guardrails" className="inline-link">Guardrails</Link>.
+          </p>
           {status && <p className="page-status">{status}</p>}
         </div>
         <div className="row wrap">
@@ -123,7 +158,7 @@ export default function PoliciesPage() {
             Refresh
           </button>
           <button className="button" onClick={() => setCreateOpen(true)}>
-            Create rule
+            New tool policy
           </button>
         </div>
       </header>
@@ -131,16 +166,16 @@ export default function PoliciesPage() {
       <section className="panel stack">
         <div className="row wrap" style={{ justifyContent: "space-between" }}>
           <div>
-            <h3>Active Rules</h3>
+            <h3>Tool policies</h3>
           </div>
-          <span className="badge">{policies.length} rules</span>
+          <span className="badge">{policies.length} {policies.length === 1 ? "policy" : "policies"}</span>
         </div>
         <div className="list policy-list">
           {policies.length === 0 && (
             <div className="empty-state">
-              <p>No policies yet.</p>
+              <p>No tool policies yet. Every tool call is allowed unless the guard stops it.</p>
               <button className="button" onClick={() => setCreateOpen(true)}>
-                Create the first rule
+                New tool policy
               </button>
             </div>
           )}
@@ -148,15 +183,20 @@ export default function PoliciesPage() {
             <div className="card" key={policy.id}>
               <div className="row wrap" style={{ justifyContent: "space-between" }}>
                 <strong>{policy.name}</strong>
-                <span className={`badge ${policy.enabled ? "success" : "danger"}`}>
-                  {policy.enabled ? "enabled" : "disabled"}
+                <span className={`badge ${policy.enabled ? "success" : ""}`}>
+                  {policy.enabled ? "Enabled" : "Disabled"}
                 </span>
               </div>
-              <p className="muted">
-                {policy.rule_type} / target `{policy.target_tool ?? "*"}` / priority{" "}
-                {policy.priority}
-              </p>
-              <pre>{JSON.stringify({ conditions: policy.conditions, action: policy.action }, null, 2)}</pre>
+              <p className="policy-desc">{describe(policy)}</p>
+              <div className="chips">
+                <span className="chip mono">{policy.rule_type}</span>
+                <span className="chip mono">{policy.target_tool ?? "any tool"}</span>
+                <span className="chip">Priority {policy.priority}</span>
+              </div>
+              <details className="details">
+                <summary>Conditions and action</summary>
+                <pre>{JSON.stringify({ conditions: policy.conditions, action: policy.action }, null, 2)}</pre>
+              </details>
               <div className="row wrap" style={{ marginTop: 12 }}>
                 <button className="button secondary" onClick={() => togglePolicy(policy)}>
                   {policy.enabled ? "Disable" : "Enable"}
@@ -178,7 +218,7 @@ export default function PoliciesPage() {
           >
             <div className="modal-header">
               <div>
-                <h3 id="create-rule-title">Create Rule</h3>
+                <h3 id="create-rule-title">New tool policy</h3>
               </div>
               <button className="button secondary" onClick={() => setCreateOpen(false)}>
                 Close
@@ -273,7 +313,7 @@ export default function PoliciesPage() {
                 >
                   Cancel
                 </button>
-                <button className="button">Create Policy</button>
+                <button className="button">Create</button>
               </div>
             </form>
           </section>

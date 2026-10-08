@@ -547,6 +547,7 @@ async def guard_status() -> dict:
                 "id": p.id,
                 # file: the reviewed baseline in the policy file; rule: written in the dashboard.
                 "origin": "file" if guard.is_file_policy(p.id) else "rule",
+                "description": p.description,
                 "tools": p.tools,
                 "stages": [stage.value for stage in p.stages],
                 "detector": p.detector.type,

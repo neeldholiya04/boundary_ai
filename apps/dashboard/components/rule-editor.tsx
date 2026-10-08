@@ -272,189 +272,249 @@ export function RuleEditor({
     }
   }
 
+  // Escape closes; the name field gets focus when the editor opens.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && busy === null) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onClose]);
+
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="modal panel stack" role="dialog" aria-modal="true" aria-labelledby="rule-editor-title">
-        <div className="modal-header">
-          <h3 id="rule-editor-title">{rule ? `Edit ${rule.policy_id}` : "New guard rule"}</h3>
-          <button className="button secondary" onClick={onClose}>
+      <section className="modal editor" role="dialog" aria-modal="true" aria-labelledby="rule-editor-title">
+        <header className="editor-head">
+          <div>
+            <h3 id="rule-editor-title">{rule ? `Edit rule` : "New rule"}</h3>
+            {rule && <p className="muted mono small">{rule.policy_id}</p>}
+          </div>
+          <button type="button" className="button secondary small" onClick={onClose}>
             Close
           </button>
-        </div>
+        </header>
 
-        {!rule && (
-          <div className="row wrap" aria-label="Start from">
-            {PRESETS.map((p) => (
-              <button
-                key={p.label}
-                type="button"
-                className="button secondary"
-                onClick={() => {
-                  setDraft({ ...EMPTY, ...p.draft });
-                  setReport(null);
-                }}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        )}
+        <form id="rule-form" className="editor-body" onSubmit={save}>
+          {!rule && (
+            <div className="field">
+              <span className="field-label">Start from</span>
+              <div className="chips">
+                {PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    className="chip-toggle"
+                    onClick={() => {
+                      setDraft({ ...EMPTY, ...p.draft });
+                      setReport(null);
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-        <form className="stack" onSubmit={save}>
           <div className="field">
             <label htmlFor="rule-name">Name</label>
-            <input id="rule-name" required value={draft.name} onChange={(e) => update("name", e.target.value)} />
+            <input
+              id="rule-name"
+              required
+              autoFocus
+              value={draft.name}
+              onChange={(e) => update("name", e.target.value)}
+            />
           </div>
 
-          <fieldset className="field">
+          <fieldset className="editor-section">
             <legend>Where it checks</legend>
-            <div className="row wrap">
+            <div className="chips" role="group" aria-label="Stages">
               {(Object.keys(STAGE_LABELS) as GuardStage[]).map((stage) => (
-                <label key={stage} className="check">
-                  <input type="checkbox" checked={draft.stages.includes(stage)} onChange={() => toggleStage(stage)} />
+                <button
+                  key={stage}
+                  type="button"
+                  className="chip-toggle"
+                  aria-pressed={draft.stages.includes(stage)}
+                  onClick={() => toggleStage(stage)}
+                >
                   {STAGE_LABELS[stage]}
-                </label>
+                </button>
               ))}
             </div>
-          </fieldset>
-
-          {toolStagesOnly && (
-            <fieldset className="field">
-              <legend>Only these tools (none selected = every tool)</legend>
-              <div className="row wrap">
-                {tools.map((tool) => (
-                  <label key={tool} className="check mono">
-                    <input
-                      type="checkbox"
-                      checked={draft.tools.includes(tool)}
-                      onChange={() =>
+            {toolStagesOnly && (
+              <div className="field">
+                <span className="field-label">Only these tools</span>
+                <div className="chips" role="group" aria-label="Tools">
+                  {Array.from(new Set([...tools, ...draft.tools])).sort().map((tool) => (
+                    <button
+                      key={tool}
+                      type="button"
+                      className="chip-toggle mono"
+                      aria-pressed={draft.tools.includes(tool)}
+                      onClick={() =>
                         update(
                           "tools",
                           draft.tools.includes(tool) ? draft.tools.filter((t) => t !== tool) : [...draft.tools, tool]
                         )
                       }
-                    />
-                    {tool}
-                  </label>
-                ))}
-                {tools.length === 0 && <span className="muted">No tools discovered yet.</span>}
+                    >
+                      {tool}
+                    </button>
+                  ))}
+                  {tools.length === 0 && draft.tools.length === 0 && (
+                    <span className="muted small">No tools discovered yet.</span>
+                  )}
+                </div>
+                <p className="field-help">
+                  None selected: every tool.
+                  {draft.tools.some((t) => !tools.includes(t)) &&
+                    " Some selected tools aren't connected right now; the rule applies once they are."}
+                </p>
               </div>
-            </fieldset>
-          )}
+            )}
+          </fieldset>
 
-          <div className="field">
-            <label htmlFor="rule-check">What it looks for</label>
-            <select
-              id="rule-check"
-              value={draft.checkType}
-              onChange={(e) => {
-                const next = e.target.value as RuleCheckType;
-                const redacts = types?.checks.find((c) => c.type === next)?.can_redact;
-                setDraft((d) => ({ ...d, checkType: next, action: d.action === "redact" && !redacts ? "block" : d.action }));
-                setReport(null);
-              }}
-            >
-              {(types?.checks ?? []).map((c) => (
-                <option key={c.type} value={c.type}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-            {checkInfo && <p className="muted">{checkInfo.hint}</p>}
-          </div>
-
-          {linesLabel && (
+          <fieldset className="editor-section">
+            <legend>What it looks for</legend>
             <div className="field">
-              <label htmlFor="rule-lines">{linesLabel}</label>
-              <textarea id="rule-lines" required value={draft.lines} onChange={(e) => update("lines", e.target.value)} />
-            </div>
-          )}
-
-          {draft.checkType === "llm_judge" && (
-            <>
-              <div className="field">
-                <label htmlFor="rule-policy">Policy, in plain words</label>
-                <textarea
-                  id="rule-policy"
-                  required
-                  value={draft.policy}
-                  onChange={(e) => update("policy", e.target.value)}
-                  placeholder="The answer must not give legal advice about the user's own situation."
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="rule-model">Judge model</label>
-                <input
-                  id="rule-model"
-                  className="mono"
-                  value={draft.model}
-                  onChange={(e) => update("model", e.target.value)}
-                  placeholder={types?.judge_model ?? "default"}
-                />
-              </div>
-            </>
-          )}
-
-          <div className="row wrap">
-            <div className="field">
-              <label htmlFor="rule-action">When it matches</label>
-              <select id="rule-action" value={draft.action} onChange={(e) => update("action", e.target.value as RuleAction)}>
-                {(Object.keys(ACTION_LABELS) as RuleAction[]).map((a) => (
-                  <option key={a} value={a} disabled={a === "redact" && !canRedact}>
-                    {ACTION_LABELS[a]}
+              <label htmlFor="rule-check">Check</label>
+              <select
+                id="rule-check"
+                value={draft.checkType}
+                onChange={(e) => {
+                  const next = e.target.value as RuleCheckType;
+                  const redacts = types?.checks.find((c) => c.type === next)?.can_redact;
+                  setDraft((d) => ({
+                    ...d,
+                    checkType: next,
+                    action: d.action === "redact" && !redacts ? "block" : d.action
+                  }));
+                  setReport(null);
+                }}
+              >
+                {(types?.checks ?? []).map((c) => (
+                  <option key={c.type} value={c.type}>
+                    {c.label}
                   </option>
                 ))}
               </select>
+              {checkInfo && <p className="field-help">{checkInfo.hint}</p>}
             </div>
-            {draft.action === "redact" && (
+
+            {linesLabel && (
               <div className="field">
-                <label htmlFor="rule-label">Placeholder label</label>
-                <input
-                  id="rule-label"
-                  className="mono"
-                  value={draft.label}
-                  onChange={(e) => update("label", e.target.value)}
-                  placeholder="REDACTED"
-                />
+                <label htmlFor="rule-lines">{linesLabel}</label>
+                <textarea id="rule-lines" required value={draft.lines} onChange={(e) => update("lines", e.target.value)} />
               </div>
             )}
-          </div>
 
-          {draft.stages.includes("tool_output") && (
-            <label className="check">
-              <input type="checkbox" checked={draft.taintsRun} onChange={(e) => update("taintsRun", e.target.checked)} />
-              Taint the run when it matches (later writes and deletes need approval)
-            </label>
-          )}
+            {draft.checkType === "llm_judge" && (
+              <>
+                <div className="field">
+                  <label htmlFor="rule-policy">Policy, in plain words</label>
+                  <textarea
+                    id="rule-policy"
+                    required
+                    value={draft.policy}
+                    onChange={(e) => update("policy", e.target.value)}
+                    placeholder="The answer must not give legal advice about the user's own situation."
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="rule-model">Judge model</label>
+                  <input
+                    id="rule-model"
+                    className="mono"
+                    value={draft.model}
+                    onChange={(e) => update("model", e.target.value)}
+                    placeholder={types?.judge_model ?? "default"}
+                  />
+                  <p className="field-help">Leave empty to use the default model.</p>
+                </div>
+              </>
+            )}
+          </fieldset>
 
-          <div className="row wrap">
-            <div className="field" style={{ flex: 1 }}>
-              <label htmlFor="rule-fire">Should match (one per line)</label>
-              <textarea id="rule-fire" value={draft.shouldFire} onChange={(e) => update("shouldFire", e.target.value)} />
+          <fieldset className="editor-section">
+            <legend>What happens</legend>
+            <div className="editor-pair">
+              <div className="field">
+                <label htmlFor="rule-action">When it matches</label>
+                <select
+                  id="rule-action"
+                  value={draft.action}
+                  onChange={(e) => update("action", e.target.value as RuleAction)}
+                >
+                  {(Object.keys(ACTION_LABELS) as RuleAction[]).map((a) => (
+                    <option key={a} value={a} disabled={a === "redact" && !canRedact}>
+                      {ACTION_LABELS[a]}
+                    </option>
+                  ))}
+                </select>
+                {!canRedact && <p className="field-help">Redact needs a keywords or pattern check.</p>}
+              </div>
+              {draft.action === "redact" && (
+                <div className="field">
+                  <label htmlFor="rule-label">Placeholder label</label>
+                  <input
+                    id="rule-label"
+                    className="mono"
+                    value={draft.label}
+                    onChange={(e) => update("label", e.target.value)}
+                    placeholder="REDACTED"
+                  />
+                  <p className="field-help">Matches become &lt;{(draft.label || "REDACTED").toUpperCase()}_1&gt;.</p>
+                </div>
+              )}
             </div>
-            <div className="field" style={{ flex: 1 }}>
-              <label htmlFor="rule-pass">Should not match (one per line)</label>
-              <textarea id="rule-pass" value={draft.shouldPass} onChange={(e) => update("shouldPass", e.target.value)} />
+            {draft.stages.includes("tool_output") && (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={draft.taintsRun}
+                  onChange={(e) => update("taintsRun", e.target.checked)}
+                />
+                Taint the run when it matches: later writes and deletes need approval, even in shadow
+              </label>
+            )}
+          </fieldset>
+
+          <fieldset className="editor-section">
+            <legend>Examples</legend>
+            <p className="field-help">Test runs the rule on these and on the eval set&apos;s clean records.</p>
+            <div className="editor-pair">
+              <div className="field">
+                <label htmlFor="rule-fire">Should match (one per line)</label>
+                <textarea id="rule-fire" value={draft.shouldFire} onChange={(e) => update("shouldFire", e.target.value)} />
+              </div>
+              <div className="field">
+                <label htmlFor="rule-pass">Should not match (one per line)</label>
+                <textarea id="rule-pass" value={draft.shouldPass} onChange={(e) => update("shouldPass", e.target.value)} />
+              </div>
             </div>
-          </div>
+          </fieldset>
 
           {error && (
-            <p className="error" role="alert">
+            <p className="notice error" role="alert">
               {error}
             </p>
           )}
 
           {report && <DryRunReport report={report} />}
+        </form>
 
-          <div className="row wrap" style={{ justifyContent: "flex-end" }}>
+        <footer className="editor-foot">
+          <span className="muted small">{rule ? `Keeps its mode (${rule.spec.mode})` : "New rules start in shadow"}</span>
+          <div className="row">
             <button type="button" className="button secondary" onClick={runTest} disabled={busy !== null}>
               {busy === "test" ? "Testing…" : "Test"}
             </button>
-            <button className="button" disabled={busy !== null}>
-              {busy === "save" ? "Saving…" : rule ? "Save" : "Create in shadow"}
+            <button type="submit" form="rule-form" className="button" disabled={busy !== null}>
+              {busy === "save" ? "Saving…" : rule ? "Save" : "Create"}
             </button>
           </div>
-        </form>
+        </footer>
       </section>
     </div>
   );
@@ -462,23 +522,32 @@ export function RuleEditor({
 
 function DryRunReport({ report }: { report: RuleDryRun }) {
   return (
-    <div className="card stack" aria-live="polite">
-      <strong>{report.passed ? "Examples pass" : "Some examples don't match what you expected"}</strong>
-      {report.examples.map((e, i) => (
-        <p key={i} className="mono">
-          {e.ok ? "✓" : "✗"} {e.expected === "fire" ? "should match" : "should not match"}: {e.text}
-          {e.fired ? ` → ${e.action}` : " → no match"}
-          {e.redacted ? ` → "${e.redacted}"` : ""}
-          {e.error ? ` (error: ${e.error})` : ""}
-        </p>
-      ))}
+    <section className="dry-run" aria-live="polite">
+      <strong className={report.passed ? "text-success" : "text-danger"}>
+        {report.passed ? "All examples behave as expected" : "Some examples don't match what you expected"}
+      </strong>
+      <ul>
+        {report.examples.map((e, i) => (
+          <li key={i} className={e.ok ? "" : "text-danger"}>
+            <span className="mono">{e.ok ? "pass" : "fail"}</span>{" "}
+            {e.expected === "fire" ? "Should match" : "Should not match"}: <q>{e.text}</q>
+            {e.fired ? ` gives ${e.action}` : " gives no match"}
+            {e.redacted ? (
+              <>
+                , shown as <q className="mono">{e.redacted}</q>
+              </>
+            ) : null}
+            {e.error ? ` (error: ${e.error})` : ""}
+          </li>
+        ))}
+      </ul>
       {report.benign && (
-        <p className="muted">
-          Fired on {report.benign.fired} of {report.benign.checked} benign eval records at these stages (
-          {(report.benign.rate * 100).toFixed(1)}%).
-          {report.benign.samples.map((s) => ` ${s.record_id}`).join(",")}
+        <p className="muted small">
+          On clean eval records at these stages it fired {report.benign.fired} of {report.benign.checked} times (
+          {(report.benign.rate * 100).toFixed(1)}%)
+          {report.benign.samples.length > 0 ? `, e.g. ${report.benign.samples.map((s) => s.record_id).join(", ")}` : ""}.
         </p>
       )}
-    </div>
+    </section>
   );
 }
