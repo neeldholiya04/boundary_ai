@@ -29,6 +29,8 @@ class Conversation(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     title: Mapped[str] = mapped_column(String(255), default="New conversation")
+    # The account that started it; users only see their own (NULL: from before logins existed).
+    owner: Mapped[str | None] = mapped_column(String(80), nullable=True)
     token_budget: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
     spent_tokens: Mapped[int] = mapped_column(Integer, default=0)

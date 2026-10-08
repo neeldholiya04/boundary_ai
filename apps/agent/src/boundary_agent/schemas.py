@@ -6,6 +6,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=200)
+
+
 class ConversationCreate(BaseModel):
     title: str | None = None
     token_budget: int | None = None

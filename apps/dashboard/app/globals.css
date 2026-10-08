@@ -1827,3 +1827,82 @@ mark.hit {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* ---- login ------------------------------------------------------------------------------- */
+
+.login {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 24px 16px;
+}
+
+.login-card {
+  display: grid;
+  gap: 16px;
+  width: min(380px, 100%);
+  padding: 28px;
+}
+
+.login-card h1 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.login-submit {
+  justify-content: center;
+  height: 38px;
+}
+
+.side-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.chat-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 6px 0;
+  border-top: 1px solid var(--line);
+}
+
+/* The chat is its own full-screen app for user accounts (no dashboard shell around it). */
+.page.chat {
+  height: 100dvh;
+}
+
+.chat-list {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+@media (max-width: 960px) {
+  .page.chat {
+    height: 100dvh;
+  }
+
+  .chat-account {
+    grid-column: 1 / -1;
+    padding-top: 6px;
+  }
+
+  .side-account {
+    display: flex;
+    margin-top: 0;
+  }
+
+  .side-account .subtle {
+    display: none;
+  }
+}

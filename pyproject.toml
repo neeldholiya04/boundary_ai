@@ -49,6 +49,7 @@ testpaths = ["packages/guard/tests", "packages/eval/tests", "packages/detector/t
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--import-mode=importlib"
+markers = ["auth: runs with the API login check on (apps/agent/tests/conftest.py turns it off otherwise)"]
 pythonpath = ["packages/guard/tests", "packages/eval/tests", "apps/agent/tests"]
 
 [tool.ruff]

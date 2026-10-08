@@ -1,13 +1,21 @@
 "use client";
 
-import { ArrowUp, CaretRight, HourglassMedium, NotePencil, ShieldWarning, Wrench } from "@phosphor-icons/react";
-import Link from "next/link";
+import {
+  ArrowUp,
+  CaretRight,
+  HourglassMedium,
+  NotePencil,
+  ShieldWarning,
+  SignOut,
+  Wrench
+} from "@phosphor-icons/react";
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 
+import { signOut } from "@/components/dashboard-shell";
 import { apiGet, apiSend } from "@/lib/api";
+import { getSession } from "@/lib/auth";
 import { timeAgo } from "@/lib/format";
 import { ChatResponse, Conversation, Message } from "@/lib/types";
-import { useLiveRefresh } from "@/lib/use-live-refresh";
 
 const EXAMPLES = ["List the files in the workspace", "Write notes/demo.txt saying hello", "Search the files for “guarded”"];
 
@@ -104,17 +112,8 @@ function Notice({ kind, text }: { kind: string; text: string }) {
       {waiting ? <HourglassMedium size={16} aria-hidden /> : <ShieldWarning size={16} aria-hidden />}
       <div>
         <p>{body}</p>
-        {match && (
-          <p className="msg-notice-ref">
-            Reference {match[2]} ·{" "}
-            <Link href={`/logs?q=${match[2]}`}>details in Logs</Link>
-          </p>
-        )}
-        {waiting && (
-          <p className="msg-notice-ref">
-            <Link href="/approvals">Review on Approvals</Link>
-          </p>
-        )}
+        {match && <p className="msg-notice-ref">Reference {match[2]} (your admin can look it up)</p>}
+        {waiting && <p className="msg-notice-ref">This chat continues on its own once someone decides.</p>}
       </div>
     </div>
   );
@@ -130,6 +129,8 @@ export default function ChatPage() {
   const [traceUrl, setTraceUrl] = useState<string | null>(null);
   const [guardNotices, setGuardNotices] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [account, setAccount] = useState("");
+  useEffect(() => setAccount(getSession()?.username ?? ""), []);
   const pickedFirst = useRef(false);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -184,10 +185,17 @@ export default function ChatPage() {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight });
   }, [messages, busy]);
 
-  useLiveRefresh(() => {
-    loadConversations().catch(() => undefined);
-    if (selectedId) loadMessages(selectedId).catch(() => undefined);
-  });
+  // Users don't get the live event stream (it's admin-only), so while a request waits for a person the
+  // chat checks back every few seconds and picks up the decision.
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = window.setInterval(() => {
+      loadConversations().catch(() => undefined);
+      if (selectedId) loadMessages(selectedId).catch(() => undefined);
+    }, 4000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting, selectedId]);
 
   function select(id: string | null) {
     setSelectedId(id);
@@ -272,6 +280,12 @@ export default function ChatPage() {
             ))
           )}
         </nav>
+        <div className="chat-account">
+          <span className="subtle small">{account}</span>
+          <button className="btn btn-ghost btn-sm" onClick={signOut}>
+            <SignOut size={14} aria-hidden /> Sign out
+          </button>
+        </div>
       </aside>
 
       <section className="chat-main" aria-label="Conversation">
@@ -345,9 +359,6 @@ export default function ChatPage() {
             {waiting && (
               <div className="notice warn chat-waiting">
                 <span>Waiting for approval: {selected?.pending_approval_reason}</span>
-                <Link className="btn btn-sm" href="/approvals">
-                  Review
-                </Link>
               </div>
             )}
             {error && (

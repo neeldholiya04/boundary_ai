@@ -12,16 +12,17 @@ Plan about an hour the first time; most of that is waiting for downloads.
 
 ```
                      ┌──────────────────────── EC2 t4g.large (Ubuntu 24.04, ARM) ───────────────────────┐
- https://boundary.…  │  Caddy ──► dashboard (Playground page only)       agent ◄── Prometheus (opt-in)  │
- (public playground) │    │   ──► agent: /api/guard/scan, /api/playground/*  │                          │
-                     │    │                                                 ├── Postgres, Redis        │
- https://admin.…     │    └──(basic auth)──► full dashboard + full API        └── model cache (volume)   │
- (you only)          └──────────────────────────────────────────────────────────────────────────────────┘
+ https://boundary.…  │  Caddy ──► dashboard (sign in; chat for users,     agent ◄── Prometheus (opt-in) │
+ https://admin.…     │    │       dashboard for admins)                     │                          │
+                     │    └─────► agent /api (checks the sign-in and role)  ├── Postgres, Redis        │
+                     │                                                      └── model cache (volume)   │
+                     └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Hostnames:** two free `sslip.io` names that resolve to the server's IP, so no domain to buy. For
-IP `3.91.20.7`: `boundary.3-91-20-7.sslip.io` (public) and `admin.3-91-20-7.sslip.io` (admin).
-Caddy gets real HTTPS certificates for both automatically.
+IP `3.91.20.7`: `boundary.3-91-20-7.sslip.io` and `admin.3-91-20-7.sslip.io`. Both serve the same
+app: everyone signs in, user accounts get the chat, admin accounts get the dashboard (the agent
+enforces the roles on every API call). Caddy gets real HTTPS certificates for both automatically.
 
 # Part 1: Provision and go live
 
@@ -104,8 +105,8 @@ Your hostnames contain the IP, so it must not change when you stop and start the
 1. *EC2 → Elastic IPs → Allocate Elastic IP address → Allocate*.
 2. *Actions → Associate* → choose instance `boundary`.
 3. Note the address, e.g. `3.91.20.7`. Your hostnames are now:
-   - `boundary.3-91-20-7.sslip.io` (public playground)
-   - `admin.3-91-20-7.sslip.io` (admin)
+   - `boundary.3-91-20-7.sslip.io`
+   - `admin.3-91-20-7.sslip.io`
 
 ## 6. Prepare the server
 
@@ -152,28 +153,18 @@ Set these and leave the rest as they are.
 | `POSTGRES_PASSWORD` | a long random string: `openssl rand -hex 24` |
 | `OPENAI_API_KEY` | **a separate key just for this server**, from an OpenAI project with a monthly spend limit |
 | `HF_TOKEN` | a Hugging Face *read* token, from the account that accepted the Llama Prompt Guard 2 licence (required) |
-| `LLM_DAILY_BUDGET_USD` | e.g. `2`: the public playground can't spend more than this per day |
+| `LLM_DAILY_BUDGET_USD` | e.g. `2`: playground live runs can't spend more than this per day |
 | `PUBLIC_HOST` | `boundary.3-91-20-7.sslip.io` |
 | `ADMIN_HOST` | `admin.3-91-20-7.sslip.io` |
-| `ADMIN_USER` | `admin` (or anything) |
-| `ADMIN_PASSWORD_HASH` | see below |
+| `AUTH_USERS` | the accounts, e.g. `admin:<long password>:admin,user:<password>:user` |
+| `AUTH_SECRET` | `openssl rand -hex 32` (signs sign-in tokens) |
 | `ACME_EMAIL` | optional: your email, for certificate notices |
 | `EXA_API_KEY`, `LANGFUSE_*` | optional |
 | `GRAFANA_ADMIN_PASSWORD` | only if you'll use the observability profile (step 10) |
 
-Make the admin password hash. The password itself is never stored or kept in shell history:
-
-```bash
-read -rs -p "Admin password: " PW; echo
-docker run --rm caddy:2-alpine caddy hash-password --plaintext "$PW"; unset PW
-```
-
-Paste the output into `.env` **in single quotes**. The hash contains `$` signs that Docker Compose
-would otherwise expand:
-
-```
-ADMIN_PASSWORD_HASH='$2a$14$...'
-```
+Pick real passwords for `AUTH_USERS`: they guard the whole app (the defaults admin123/user123 are
+for local use only). Avoid `,` and `:` inside a password; they separate the entries. Failed sign-ins
+are throttled per client (10 per 5 minutes).
 
 Secrets live only in this `.env` (mode 600). They are never baked into an image; `.dockerignore`
 excludes every `.env`.
@@ -213,11 +204,11 @@ From your laptop, in the repo, swapping in your hostnames:
 infra/smoke-test.sh https://boundary.3-91-20-7.sslip.io https://admin.3-91-20-7.sslip.io
 ```
 
-It asks for the admin password and checks 15 access rules:
-- The public host serves only the playground; its admin pages redirect away.
-- The admin API and `/metrics` return 404 on the public host.
-- The admin host needs the password.
-- `/metrics` is hidden on the admin host too.
+It asks for the admin account's password (the `admin` entry in `AUTH_USERS`; set `ADMIN_USER` if it
+has another name) and checks the access rules on both hosts:
+- The sign-in page loads; the chat, admin and playground APIs refuse requests without a sign-in.
+- `/metrics` returns 404.
+- A wrong password is refused; the admin can sign in and reach the admin and playground APIs.
 - HTTPS headers are set.
 
 It should end with `all checks passed`. (The same script passed against a local rehearsal of this
@@ -444,8 +435,8 @@ instance through Systems Manager. Use the same region as the server throughout.
   | `PUBLIC_URL` | `https://boundary.3-91-20-7.sslip.io` |
   | `ADMIN_URL` | `https://admin.3-91-20-7.sslip.io` |
 
-- **Environment secret** `ADMIN_PASSWORD`: the admin password, which the smoke test uses for its
-  login checks.
+- **Environment secret** `ADMIN_PASSWORD`: the admin account's password from `AUTH_USERS`, which
+  the smoke test uses for its sign-in checks.
 
 **First run:** *Actions → deploy → Run workflow* (leave *ref* empty).
 1. It assumes the role and runs `infra/deploy.sh` on the server at the latest `main`.
@@ -461,7 +452,7 @@ From then on: **merge a PR → `ci` passes on `main` → `deploy` runs by itself
 | `Not authorized to perform sts:AssumeRoleWithWebIdentity` | the trust policy's `sub` doesn't match: the repo name, or the environment isn't exactly `production` |
 | `AccessDenied ... ssm:SendCommand` | region, account or instance ID in the inline policy |
 | `InvalidInstanceId` | the instance isn't managed by SSM yet: check step 18a and Fleet Manager |
-| Deploy succeeds, smoke test fails | run `infra/smoke-test.sh` from your laptop to see which rule; `ADMIN_PASSWORD` may not match the hash in the server's `.env` |
+| Deploy succeeds, smoke test fails | run `infra/smoke-test.sh` from your laptop to see which rule; `ADMIN_PASSWORD` may not match the admin entry in the server's `AUTH_USERS` |
 
 ## Troubleshooting
 
@@ -469,7 +460,7 @@ From then on: **merge a PR → `ci` passes on `main` → `deploy` runs by itself
 |---|---|
 | Browser warns about the certificate, or Caddy logs `challenge failed` | ports 80/443 not open to *Anywhere*, or the hostname's IP part doesn't match the Elastic IP |
 | `401` from Hugging Face in the agent log | `HF_TOKEN` missing, or the account hasn't accepted the Llama Prompt Guard 2 licence |
-| `invalid ADMIN_PASSWORD_HASH` / the login never works | the hash isn't in single quotes in `.env` |
+| The sign-in never works | `AUTH_USERS` malformed (`name:password:role`, comma-separated, no `:` or `,` in passwords); the agent log says which entry |
 | Agent restarts, `Killed` in the log | out of memory: check `free -h`; stop the observability profile, or use a bigger instance |
 | Guard checks time out / benign requests blocked | memory pressure (see [RESULTS.md](RESULTS.md) caveats); on t4g.large this should be rare |
 | Can't SSH any more | your IP changed: update the security group's SSH rule to *My IP* |

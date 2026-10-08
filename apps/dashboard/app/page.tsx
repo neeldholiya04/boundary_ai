@@ -1,5 +1,4 @@
-import { redirect } from "next/navigation";
-
+// The shell sends "/" to the signed-in role's home (chat or guardrails), or to /login.
 export default function HomePage() {
-  redirect("/chat");
+  return null;
 }

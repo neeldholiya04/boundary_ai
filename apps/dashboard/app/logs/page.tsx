@@ -167,7 +167,7 @@ export default function LogsPage() {
     return (logs ?? []).filter((e) => {
       if (category !== "all" && categoryOf(e.event_type) !== category) return false;
       if (!q) return true;
-      return `${e.event_type} ${LABELS[e.event_type] ?? ""} ${summarize(e).text} ${e.run_id ?? ""}`
+      return `${e.event_type} ${LABELS[e.event_type] ?? ""} ${summarize(e).text} ${e.run_id ?? ""} ${e.conversation_id ?? ""}`
         .toLowerCase()
         .includes(q);
     });
