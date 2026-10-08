@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, CaretRight, NotePencil, ShieldWarning, Wrench } from "@phosphor-icons/react";
+import { ArrowUp, CaretRight, HourglassMedium, NotePencil, ShieldWarning, Wrench } from "@phosphor-icons/react";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 
@@ -67,6 +67,55 @@ function ToolMessage({ message }: { message: Message }) {
         <CaretRight size={12} className="caret" aria-hidden />
       </button>
       {open && <pre className="code">{pretty(message.content)}</pre>}
+    </div>
+  );
+}
+
+// Messages stored before notices were tagged: recognised by the fixed text the agent wrote.
+const OLD_BLOCKED = [
+  "Request blocked by the guard",
+  "Tool call blocked",
+  "The answer was withheld",
+  "Tool output blocked",
+  "I removed the secret",
+  "Stopped before running",
+  "Approved tool call was blocked",
+];
+const OLD_WAITING = ["Tool call requires approval", "Content is waiting for human review"];
+
+function noticeKind(message: Message): string | null {
+  if (message.role !== "assistant") return null;
+  const tagged = meta(message).notice;
+  if (typeof tagged === "string") return tagged;
+  if (OLD_WAITING.some((p) => message.content.startsWith(p))) return "waiting";
+  if (OLD_BLOCKED.some((p) => message.content.startsWith(p))) return "blocked";
+  if (/\(Reference: run [0-9a-f]+; details are in the logs\.\)$/.test(message.content)) return "blocked";
+  return null;
+}
+
+/** A block, a stop or an approval wait: shown as a notice, not as the agent's answer. */
+function Notice({ kind, text }: { kind: string; text: string }) {
+  const waiting = kind === "waiting";
+  // "… (Reference: run 1a2b3c4d; details are in the logs.)" -> the sentence, then a quiet reference.
+  const match = text.match(/^(.*?)\s*\(Reference: run ([0-9a-f]+); details are in the logs\.\)$/s);
+  const body = match ? match[1] : text;
+  return (
+    <div className={`msg-notice ${waiting ? "waiting" : "blocked"}`} role="status">
+      {waiting ? <HourglassMedium size={16} aria-hidden /> : <ShieldWarning size={16} aria-hidden />}
+      <div>
+        <p>{body}</p>
+        {match && (
+          <p className="msg-notice-ref">
+            Reference {match[2]} ·{" "}
+            <Link href={`/logs?q=${match[2]}`}>details in Logs</Link>
+          </p>
+        )}
+        {waiting && (
+          <p className="msg-notice-ref">
+            <Link href="/approvals">Review on Approvals</Link>
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -269,6 +318,8 @@ export default function ChatPage() {
               messages.map((message) =>
                 message.role === "tool" ? (
                   <ToolMessage key={message.id} message={message} />
+                ) : noticeKind(message) ? (
+                  <Notice key={message.id} kind={noticeKind(message)!} text={message.content} />
                 ) : (
                   <div key={message.id} className={`msg ${message.role === "user" ? "msg-user" : "msg-agent"}`}>
                     {message.content}

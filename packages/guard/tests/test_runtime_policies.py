@@ -126,6 +126,35 @@ async def test_keywords_match_whole_words_case_insensitively_and_span_each_hit()
     assert detection.reasons == ["keyword 'card'", "keyword 'credit card'"]
 
 
+async def test_fuzzy_keywords_take_one_typo_in_longer_words_only():
+    # Live: a rule on "hemkesh" never fired on "how is hemkes doing".
+    det = KeywordsDetector(["hemkesh", "Project Falcon", "admin", "token"], fuzzy=True)
+    texts = (
+        "how is hemkes doing",
+        "project falcn ships",
+        "admit it",
+        "taken",
+        "the hemkeshwar temple",
+        "hemk3sh",
+    )
+    hits = [(await det.detect(t, CheckContext())).triggered for t in texts]
+    # 7+ characters take one letter edit; short words stay exact; whole words only; no digit edits.
+    assert hits == [True, True, False, False, False, False]
+
+
+async def test_fuzzy_keeps_case_when_case_sensitive():
+    det = KeywordsDetector(["Hemkesh"], fuzzy=True, case_sensitive=True)
+    assert (await det.detect("Hemkes said", CheckContext())).triggered
+    assert not (await det.detect("hemkes said", CheckContext())).triggered
+
+
+async def test_fuzzy_keywords_stay_fast_on_long_text():
+    det = KeywordsDetector(["hemkesh", "shrimay", "Project Falcon"], fuzzy=True)
+    started = time.perf_counter()
+    await det.detect("lorem ipsum dolor sit amet hemkesx " * 600, CheckContext())
+    assert time.perf_counter() - started < 0.1
+
+
 async def test_keywords_redact_through_the_guard():
     guard = Guard(make_config())
     guard.add_policy(

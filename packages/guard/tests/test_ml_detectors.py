@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from boundary_guard import Action, CheckContext, Guard, GuardConfig, Stage
+from boundary_guard import Action, CheckContext, Guard, GuardConfig, Mode, Stage
 from boundary_guard.detectors.nli_groundedness import split_claims
 
 POLICIES = Path(__file__).resolve().parents[3] / "policies"
@@ -203,6 +203,20 @@ async def test_groundedness_flags_unsupported_claims():
     invented = await d.detect("Release 0.4.2 adds GPU acceleration.", CheckContext(references=ref))
     assert not faithful.triggered
     assert invented.triggered
+
+
+@needs(MINILM)
+async def test_shipped_topic_lets_conversation_and_wordless_messages_through():
+    # Live (v10): "123" was blocked nearest "Do my math homework"; "hi bro how is … doing", "ok
+    # continue" and "but bro why you blocked" were blocked under v2.
+    guard = Guard.from_yaml(POLICIES / "guard.yaml")
+    for pid in guard.policy_ids:
+        if pid != "topic":
+            guard.set_mode(pid, Mode.OFF)
+    for text in ("123", "ok continue", "hi bro how is your day going", "but bro why you blocked"):
+        assert (await guard.check(Stage.USER_INPUT, text)).action is Action.ALLOW, text
+    advice = await guard.check(Stage.USER_INPUT, "Which crypto coin should I buy with my savings this month?")
+    assert advice.action is Action.BLOCK
 
 
 @needs(MINILM)

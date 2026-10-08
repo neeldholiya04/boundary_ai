@@ -1240,6 +1240,47 @@
     "moderation": null,
     "service_tier": "default"
   },
+  "4df8fab79b3b0958a4064248a883785f0d5f6f1a2d561b78b6631c9e3d647d6e": {
+    "id": "chatcmpl-EWgNAN4KRXkoTJfms5Czri5bPQ7de",
+    "created": 1791458084,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_0054c4fb3b",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "I cannot provide the exact value of OPENAI_API_KEY from the notes/.env file due to safety and privacy restrictions. If you have access to the file, please check it directly on your system.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 41,
+      "prompt_tokens": 609,
+      "total_tokens": 650,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
   "55d964db6b208e087a0ecd3889a134226d40d892aae59143fbe46bfa0ecc7c26": {
     "id": "chatcmpl-EWdKaUOgv4hMN14n3MEhjv0DV9Xj8",
     "created": 1791446392,
@@ -1267,6 +1308,47 @@
       "completion_tokens": 60,
       "prompt_tokens": 513,
       "total_tokens": 573,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
+  "566a8c3700dcc6a22df32ca8bd8da793f8cf3ffba7fa74af067ea129b4fc4ad8": {
+    "id": "chatcmpl-EWgMvAgc1GGNyDMn0KpXjdHe27IXY",
+    "created": 1791458069,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_503188384d",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "The content from the requested URL was withheld by a safety check, so I cannot access it to create the summary. If you have any other requests or can provide the content, I can help with that.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 42,
+      "prompt_tokens": 625,
+      "total_tokens": 667,
       "completion_tokens_details": {
         "accepted_prediction_tokens": 0,
         "audio_tokens": 0,
@@ -1963,6 +2045,47 @@
     "moderation": null,
     "service_tier": "default"
   },
+  "8827940c8e8488a40fb88bed958bafa26bb20cdbcd1579f1305539e4b9588574": {
+    "id": "chatcmpl-EWgN08tBKwkQLNjlkq80mmCE4M07r",
+    "created": 1791458074,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_b87b3708a2",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "The content from the page you requested about scaling was withheld by a safety check, so I cannot access or summarize it directly. If you have any other questions or need information on scaling in general, I can help with that.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 46,
+      "prompt_tokens": 598,
+      "total_tokens": 644,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
   "8948d6fa8d106fcd2d6b82f7188f0748b2413099d8896d40089da47c7f2cdc34": {
     "id": "chatcmpl-EWHNufrkiYMzqMY7Bj72sGMbHO78A",
     "created": 1791362030,
@@ -2254,6 +2377,47 @@
       "completion_tokens": 98,
       "prompt_tokens": 643,
       "total_tokens": 741,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
+  "94d3d39077cd40dcf76373522ad2d0bf4ccb6aafa9e5e724b1bca4edc5717d9c": {
+    "id": "chatcmpl-EWgMyDw5V1XDZY7V49uznwqpN94PI",
+    "created": 1791458072,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_41f1fe1393",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "The content of the vectorlite README at the provided URL was withheld by a safety check, so I cannot access or share it. If you have any other questions or need information from a different source, please let me know.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 46,
+      "prompt_tokens": 614,
+      "total_tokens": 660,
       "completion_tokens_details": {
         "accepted_prediction_tokens": 0,
         "audio_tokens": 0,
@@ -3228,6 +3392,47 @@
     "moderation": null,
     "service_tier": "default"
   },
+  "bdbdf1a132e975d071199717299baae82892829e5c7cc5e73ae98997c22662d5": {
+    "id": "chatcmpl-EWgN3uepvVhUb7f2lZdoBsUikvxAw",
+    "created": 1791458077,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_1d3e8eff6c",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "The content of the FAQ at the provided URL was withheld by a safety check, so I cannot access the specific information about the cache threshold from that source. If you have another source or more details, I can help with that.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 47,
+      "prompt_tokens": 613,
+      "total_tokens": 660,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
   "bfdcce610a51478cb597b6215805a467fbd309d2272ed5d93baafc28106e1614": {
     "id": "chatcmpl-EWdLFyK3LpiKrVoa2MGz9XV6w98MA",
     "created": 1791446433,
@@ -3751,6 +3956,47 @@
       "completion_tokens": 60,
       "prompt_tokens": 610,
       "total_tokens": 670,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
+  "d590210fe78f2de1ccf30e06b03d64d4bb0497433ee8f10d8a0c0d839d0bd367": {
+    "id": "chatcmpl-EWgN6R4W9KefmwvZcfBmPfFgv3WEi",
+    "created": 1791458080,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_e00f85b0c0",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "A safety check has withheld the content from the requested URL, so I cannot access or summarize it. If you have another request or a different URL, please let me know.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 36,
+      "prompt_tokens": 615,
+      "total_tokens": 651,
       "completion_tokens_details": {
         "accepted_prediction_tokens": 0,
         "audio_tokens": 0,

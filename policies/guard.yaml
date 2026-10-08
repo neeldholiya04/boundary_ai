@@ -4,7 +4,7 @@
 # This is the production set: the enforced detectors plus cheap regex baselines in shadow. Detectors kept only for comparison live in policies/experiments/ so they don't add
 # latency here. Thresholds are tuned on the dev split at a ≤2% dev false-positive budget
 # (`boundary-eval tune <result> --max-fpr 0.02`); see docs/EVAL.md for the sweep.
-version: 9
+version: 10
 
 defaults:
   timeout_ms: 400
@@ -15,18 +15,31 @@ defaults:
 policies:
   # ---- user input ------------------------------------------------------------------------
   - id: user_injection_promptguard
-    description: Prompt injection / jailbreak in the user's request (Llama Prompt Guard 2 86M; gated model, needs HF access).
+    description: >-
+      Prompt injection / jailbreak in the user's request: Llama Prompt Guard 2 86M (gated model, needs HF
+      access), confirmed by ProtectAI DeBERTa-v3. Either alone flags ordinary conversation (Prompt Guard:
+      "write a note on why the above chats were blocked" at 0.998; ProtectAI: "ok continue").
     stages: [user_input]
     detects: [injection, jailbreak]
     detector:
-      type: hf_classifier
-      model: meta-llama/Llama-Prompt-Guard-2-86M
-      revision: a8ded8e697ce7c355e395a0df51f94adb4a2fd27
-      positive_labels: [LABEL_1]
-      # Model default. The dev-tuned 0.0116 sat in the tail of a bimodal score distribution and its
-      # dev FPR (1.3%) did not hold on extended test (3.4%); see docs/EVAL.md "Operating points".
-      threshold: 0.5
-      chunking: { max_tokens: 512, overlap_tokens: 64, max_chunks: 16 }
+      type: all_of
+      detectors:
+        - type: hf_classifier
+          model: meta-llama/Llama-Prompt-Guard-2-86M
+          revision: a8ded8e697ce7c355e395a0df51f94adb4a2fd27
+          positive_labels: [LABEL_1]
+          # Model default. The dev-tuned 0.0116 sat in the tail of a bimodal score distribution and its
+          # dev FPR (1.3%) did not hold on extended test (3.4%); see docs/EVAL.md "Operating points".
+          threshold: 0.5
+          chunking: { max_tokens: 512, overlap_tokens: 64, max_chunks: 16 }
+        # v10: second opinion, required unless Prompt Guard is all but certain (>= 0.999, tuned on dev).
+        - type: hf_classifier
+          model: protectai/deberta-v3-base-prompt-injection-v2
+          revision: 90c9989b1a342275dd0d1a95aad283c04e075671
+          positive_labels: [INJECTION]
+          threshold: 0.5
+          chunking: { max_tokens: 512, overlap_tokens: 64, max_chunks: 16 }
+      primary_alone: 0.999
     action: block
     timeout_ms: 5000
 
@@ -48,9 +61,16 @@ policies:
       type: embeddings_topic
       model: sentence-transformers/all-MiniLM-L6-v2
       revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
-      allow: topics/research.v2.yaml
-      deny: topics/deny.v2.yaml
-      margin: 0.0
+      allow: topics/research.v3.yaml
+      deny: topics/deny.v3.yaml
+      # v10: block only when the request really resembles a deny exemplar (>= 0.25) and is clearly
+      # nearer to it (> 0.05). With margin 0 and no floor, short conversation ("hello", "ok
+      # continue") was blocked whenever a deny exemplar was nearer by a hair. Tuned on the golden dev
+      # split: 18/19 off-topic caught, 0/32 conversation flagged.
+      margin: 0.05
+      min_similarity: 0.25
+      # Fewer than 3 words (of 2+ letters) isn't judged: "123" landed nearest "Do my math homework".
+      min_words: 3
     action: block
     timeout_ms: 1000
 

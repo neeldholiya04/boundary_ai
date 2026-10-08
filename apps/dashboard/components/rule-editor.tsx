@@ -41,6 +41,8 @@ type Draft = {
   label: string;
   action: RuleAction;
   taintsRun: boolean;
+  fuzzy: boolean;
+  message: string;
   shouldFire: string;
   shouldPass: string;
 };
@@ -57,6 +59,8 @@ const EMPTY: Draft = {
   label: "",
   action: "block",
   taintsRun: false,
+  fuzzy: false,
+  message: "",
   shouldFire: "",
   shouldPass: ""
 };
@@ -122,6 +126,8 @@ function draftFromRule(rule: GuardRule): Draft {
     label: spec.check.label ?? "",
     action: spec.action,
     taintsRun: spec.taints_run ?? false,
+    fuzzy: spec.check.fuzzy ?? false,
+    message: spec.message ?? "",
     shouldFire: spec.tests.should_fire.join("\n"),
     shouldPass: spec.tests.should_pass.join("\n")
   };
@@ -141,7 +147,11 @@ function specFromDraft(draft: Draft, mode: RuleSpec["mode"], base?: RuleSpec): R
   delete check.policy;
   delete check.model;
   delete check.label;
-  if (draft.checkType === "keywords") check.keywords = toLines(draft.lines);
+  delete check.fuzzy;
+  if (draft.checkType === "keywords") {
+    check.keywords = toLines(draft.lines);
+    if (draft.fuzzy) check.fuzzy = true;
+  }
   if (draft.checkType === "pattern") check.patterns = toLines(draft.lines);
   if (draft.checkType === "topic") check.examples = toLines(draft.lines);
   if (draft.checkType === "llm_judge") {
@@ -162,6 +172,7 @@ function specFromDraft(draft: Draft, mode: RuleSpec["mode"], base?: RuleSpec): R
     // Only meaningful (and only accepted) for rules that check tool output; the checkbox is hidden
     // otherwise, so a value left over from before the stage was unticked must not be sent.
     taints_run: draft.stages.includes("tool_output") && draft.taintsRun,
+    message: draft.message.trim() || null,
     tests: { should_fire: toLines(draft.shouldFire), should_pass: toLines(draft.shouldPass) }
   };
 }
@@ -415,6 +426,13 @@ export function RuleEditor({
               <div className="field">
                 <label className="label" htmlFor="rule-lines">{linesLabel}</label>
                 <textarea className="textarea mono" id="rule-lines" required value={draft.lines} onChange={(e) => update("lines", e.target.value)} />
+                {draft.checkType === "keywords" && (
+                  <label className="check">
+                    <input type="checkbox" checked={draft.fuzzy} onChange={(e) => update("fuzzy", e.target.checked)} />
+                    Also match close spellings (one letter off, for keywords of 7+ letters). List other spellings of names
+                    separately.
+                  </label>
+                )}
               </div>
             )}
 
@@ -488,6 +506,22 @@ export function RuleEditor({
                 />
                 Taint the run when it matches: later writes and deletes need approval, even in shadow
               </label>
+            )}
+            {(draft.action === "block" || draft.action === "escalate") && (
+              <div className="field">
+                <label className="label" htmlFor="rule-message">
+                  Message shown to the user <span className="subtle">(optional)</span>
+                </label>
+                <input
+                  id="rule-message"
+                  className="input"
+                  maxLength={300}
+                  value={draft.message}
+                  onChange={(e) => update("message", e.target.value)}
+                  placeholder="This was stopped by a rule your administrator set up."
+                />
+                <p className="help">Keywords and scores are never shown to the user; they stay in Logs.</p>
+              </div>
             )}
           </fieldset>
 

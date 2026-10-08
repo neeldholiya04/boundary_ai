@@ -217,6 +217,15 @@ class GuardAdapter:
         found = [p for p in PLACEHOLDER.findall(text) if p[1:-1].rsplit("_", 1)[0] in self._secret_labels]
         return list(dict.fromkeys(found))
 
+    def policy_message(self, policy_id: str) -> str | None:
+        """The policy's own message for the user, if it has one."""
+        policy = next((p for p in self.guard.config.policies if p.id == policy_id), None)
+        return policy.message if policy else None
+
+    def policy_detects(self, policy_id: str) -> list[str]:
+        policy = next((p for p in self.guard.config.policies if p.id == policy_id), None)
+        return list(policy.detects) if policy else []
+
     @property
     def secrets_enforced(self) -> bool:
         """Whether a secrets policy is enforcing, i.e. whether secret placeholders can appear at all."""
@@ -382,14 +391,67 @@ def redaction_notice(outcome: GuardOutcome | None, original: str) -> str | None:
     placeholders = sorted(set(PLACEHOLDER.findall(outcome.text)) - set(PLACEHOLDER.findall(original)))
     if not placeholders:
         return None
-    policies = ", ".join(outcome.policies(Action.REDACT)) or "the guard"
     return (
-        f"Removed from your message before it was stored or sent to the model: {', '.join(placeholders)} "
-        f"({policies}). The assistant only sees the placeholder, so it can't use or write the original value."
+        f"Removed from your message before it was stored or sent to the model: {', '.join(placeholders)}. "
+        "The assistant only sees the placeholder, so it can't use or write the original value."
     )
 
 
-def secret_withheld_message(placeholders: list[str], also_stopped_by: list[str] | None = None) -> str:
+# What the user is told when the guard stops something, by what the stopping policy detects. The
+# detector's own reasons (scores, thresholds, the exemplar it matched) go to the logs only: they mean
+# nothing to a user and tell an attacker how close they came.
+_USER_INPUT_MESSAGES = {
+    "injection": "I can't act on that request because it reads like an attempt to change my instructions. "
+    "If that's not what you meant, try rephrasing it.",
+    "off_topic": "That's outside what I can help with here. I'm set up for research, notes and work with "
+    "your files and tools.",
+    "toxicity": "I can't help with that request as written. Try rephrasing it.",
+    "secret": "Your message contains a secret I'm not allowed to process. Remove it and send it again.",
+    "pii": "Your message contains personal information I'm not allowed to process. Remove it and send it "
+    "again.",
+}
+_STAGE_MESSAGES = {
+    "tool_args": "I stopped before running {tool} because the call didn't pass a safety check.",
+    "tool_output": "I stopped because what {tool} returned didn't pass a safety check.",
+    "final_output": "I wrote an answer but couldn't send it because it didn't pass a safety check. "
+    "Try asking in a different way.",
+}
+_DETECTS_ORDER = ("secret", "pii", "injection", "jailbreak", "off_topic", "toxicity")
+
+
+def user_block_message(
+    guard: GuardAdapter | None,
+    outcome: GuardOutcome,
+    stage: Stage,
+    *,
+    run_id: str,
+    tool_name: str | None = None,
+) -> str:
+    """A plain sentence for the user, chosen by where the guard stopped and what the stopping policy
+    detects; a policy's own `message` (e.g. an operator rule's) wins. Ends with a run reference so the
+    details can be found in the logs."""
+    driving = outcome.policies(outcome.action)
+    message = None
+    if guard is not None:
+        own = [m for pid in driving if (m := guard.policy_message(pid))]
+        if own:
+            message = own[0]
+        elif stage is Stage.USER_INPUT:
+            detects = {label for pid in driving for label in guard.policy_detects(pid)}
+            kind = next((k for k in _DETECTS_ORDER if k in detects), None)
+            kind = "injection" if kind == "jailbreak" else kind
+            message = _USER_INPUT_MESSAGES.get(kind or "")
+    sends_secret = guard is not None and any("secret" in guard.policy_detects(pid) for pid in driving)
+    if message is None and stage is Stage.TOOL_ARGS and sends_secret:
+        tool = tool_name or "the tool"
+        message = f"I stopped before running {tool} because it would have sent a secret."
+    if message is None:
+        template = _STAGE_MESSAGES.get(stage.value, "I can't help with that request.")
+        message = template.format(tool=tool_name or "the tool")
+    return f"{message} (Reference: run {run_id[:8]}; details are in the logs.)"
+
+
+def secret_withheld_message(placeholders: list[str], also_stopped: bool = False) -> str:
     """The reply when a secret was removed from the user's own message: a fixed text, so the model
     can't claim it used or wrote a value it never saw."""
     names = ", ".join(placeholders)
@@ -399,8 +461,9 @@ def secret_withheld_message(placeholders: list[str], also_stopped_by: list[str] 
         "file, add it yourself, for example in your .env file. Send the request again without the "
         "secret if there's something else I can do."
     )
-    if also_stopped_by:
-        text += f" (The request was also stopped by: {', '.join(also_stopped_by)}.)"
+    if also_stopped:
+        # Not which check: a rule's id is its name, which may be the sensitive word.
+        text += " (It also didn't pass another safety check.)"
     return text
 
 
@@ -416,12 +479,13 @@ def secret_placeholder_message(tool_name: str, placeholders: list[str]) -> str:
 
 def withheld_result(outcome: GuardOutcome, *, reviewed: bool = False) -> dict[str, Any]:
     """What the planner (and the Message table) sees in place of blocked tool output."""
-    policies = outcome.policies(Action.BLOCK) or outcome.policies(Action.ESCALATE)
+    # No policy ids or detector reasons: the model can repeat whatever it is given, and a rule's id is
+    # its name (which may be the sensitive word). Those are in the logs.
     return {
         "withheld_by_guard": {
-            "policies": policies,
-            "reason": "denied in content review" if reviewed else outcome.reason(),
-            "note": "The tool returned content the guard would not pass to the model. Continue without it.",
+            "reviewed": reviewed,
+            "note": "The tool returned content the guard would not pass to the model. Continue without it, "
+            "and tell the user only that a safety check withheld it.",
         }
     }
 

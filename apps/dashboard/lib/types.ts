@@ -145,6 +145,7 @@ export type RuleCheck = {
   keywords?: string[];
   case_sensitive?: boolean;
   whole_word?: boolean;
+  fuzzy?: boolean;
   allow_examples?: string[];
   margin?: number;
   patterns?: string[];
@@ -159,6 +160,7 @@ export type RuleCheck = {
 export type RuleSpec = {
   name: string;
   description?: string | null;
+  message?: string | null;
   stages: GuardStage[];
   tools?: string[] | null;
   check: RuleCheck;

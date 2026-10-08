@@ -5,6 +5,7 @@ factories, so the core install stays small.
 """
 
 from boundary_guard.detectors import (
+    all_of,
     embeddings_topic,
     hf_classifier,
     json_schema,
@@ -17,6 +18,7 @@ from boundary_guard.detectors import (
 )
 
 __all__ = [
+    "all_of",
     "embeddings_topic",
     "hf_classifier",
     "json_schema",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,8 @@ import yaml
 from boundary_guard.core.detector import Detector, register_detector
 from boundary_guard.core.types import CheckContext, Detection
 from boundary_guard.detectors._models import require_ml, shared, torch_device
+
+_WORD = re.compile(r"[^\W\d_]{2,}")  # a word: two or more letters, in any script
 
 
 def _load(model: str, revision: str | None) -> Any:
@@ -37,7 +40,9 @@ class EmbeddingTopicDetector(Detector):
     """Off-topic detection by nearest exemplar.
 
     The request is embedded and compared (cosine) with allow and deny exemplars. It triggers
-    when the closest deny exemplar beats the closest allow exemplar by more than `margin`.
+    when the closest deny exemplar beats the closest allow exemplar by more than `margin` AND is
+    itself at least `min_similarity` alike. Without the floor, a short message that resembles
+    nothing ("hello", "ok continue") lands nearest some deny exemplar by a hair and is blocked.
     Score = max_deny - max_allow, so the threshold is the margin.
     """
 
@@ -51,12 +56,16 @@ class EmbeddingTopicDetector(Detector):
         allow: Path | list[str],
         deny: Path | list[str],
         margin: float,
+        min_similarity: float = 0.0,
+        min_words: int = 0,
     ) -> None:
         # Exemplars come from files (the shipped topic lists) or inline (rules written in the dashboard).
         require_ml()
         self.model_name = model
         self.revision = revision
         self.threshold = margin
+        self.min_similarity = min_similarity
+        self.min_words = min_words
         self.loaded = shared(
             ("sentence_transformer", model, revision or "main"), lambda: _load(model, revision)
         )
@@ -73,6 +82,11 @@ class EmbeddingTopicDetector(Detector):
         return await asyncio.to_thread(self._detect_sync, text)
 
     def _detect_sync(self, text: str) -> Detection:
+        # A message with almost no words ("123", "ok", "yes") has no topic; its embedding lands near
+        # whatever it vaguely resembles ("123" near "Do my math homework"). Not judged.
+        words = len(_WORD.findall(text))
+        if words < self.min_words:
+            return Detection(triggered=False, score=None, reasons=[f"{words} words: too short to judge"])
         query = self._embed([text])[0]
         allow_sims = self.allow_emb @ query
         deny_sims = self.deny_emb @ query
@@ -80,18 +94,20 @@ class EmbeddingTopicDetector(Detector):
         best_allow, best_deny = float(allow_sims[a_idx]), float(deny_sims[d_idx])
         score = best_deny - best_allow
         return Detection(
-            triggered=score > self.threshold,
+            triggered=score > self.threshold and best_deny >= self.min_similarity,
             score=score,
             reasons=[
                 f"closest deny {best_deny:.3f} ({self.deny_texts[d_idx]!r}) vs "
-                f"allow {best_allow:.3f} ({self.allow_texts[a_idx]!r}); margin {self.threshold}"
+                f"allow {best_allow:.3f} ({self.allow_texts[a_idx]!r}); margin {self.threshold}, "
+                f"min similarity {self.min_similarity}"
             ],
         )
 
     def fingerprint(self) -> str:
         allow = hashlib.sha256("\n".join(self.allow_texts).encode()).hexdigest()[:16]
         deny = hashlib.sha256("\n".join(self.deny_texts).encode()).hexdigest()[:16]
-        return f"{self.model_name}@{self.revision}:{allow}:{deny}"
+        limits = f"min={self.min_similarity}:words={self.min_words}"
+        return f"{self.model_name}@{self.revision}:{allow}:{deny}:{limits}"
 
 
 @register_detector("embeddings_topic")
@@ -110,4 +126,6 @@ def _factory(params: dict[str, Any], base_dir: Path) -> Detector:
         allow=side("allow"),
         deny=side("deny"),
         margin=float(params.get("margin", 0.0)),
+        min_similarity=float(params.get("min_similarity", 0.0)),
+        min_words=int(params.get("min_words", 0)),
     )

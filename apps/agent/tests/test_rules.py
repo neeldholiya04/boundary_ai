@@ -85,7 +85,7 @@ def test_topic_rule_uses_the_shipped_model_and_allow_list():
     s = spec(check={"type": "topic", "examples": ["what do our competitors charge"]}, action="block")
     params = compile_rule(s, "rule_x").detector.params()
     assert params["deny_exemplars"] == ["what do our competitors charge"]
-    assert params["allow"] == "topics/research.v2.yaml"
+    assert params["allow"] == "topics/research.v3.yaml"
 
 
 def test_judge_rule_takes_the_default_model_unless_set():

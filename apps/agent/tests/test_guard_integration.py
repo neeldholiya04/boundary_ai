@@ -6,6 +6,7 @@ Uses small regex policies written per test, so it is fast and needs no ML models
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -221,8 +222,35 @@ async def test_user_input_block_stops_before_the_planner(session, tmp_path):
     response = await runtime.handle_chat(session, "JAILBREAK-MARKER please", None)
 
     assert response.status == "blocked"
-    assert "Request blocked by the guard: jb" in response.assistant_message
+    assert response.assistant_message.startswith("I can't help with that request.")
+    assert "jb" not in response.assistant_message and "JAILBREAK" not in response.assistant_message
+    # The reason is in the logs, not in front of the user.
+    decision = await session.scalar(select(GuardDecision).where(GuardDecision.policy_id == "jb"))
+    assert decision is not None
     assert planner.seen == []
+
+
+async def test_block_messages_are_plain_and_name_no_internals(session, tmp_path):
+    # Live: "hi bro how is <name> doing" was answered with "closest deny 0.210 ('Is this stock a good
+    # buy…') vs allow 0.175 …". The user gets a sentence chosen by what the policy detects; a policy
+    # (an operator rule) can set its own; scores, exemplars and keywords stay in the logs.
+    injection = {**markers("pg", "jailbreak", stages=["user_input"]), "detects": ["injection"]}
+    off_topic = {**markers("topic", "review", stages=["user_input"]), "detects": ["off_topic"]}
+    rule = {
+        **markers("rule_people", "inject", stages=["user_input"]),
+        "message": "Please don't ask about staff.",
+    }
+    runtime, _, _, _ = await setup(session, tmp_path, [injection, off_topic, rule], plan(), {})
+
+    jb = await runtime.handle_chat(session, "JAILBREAK-MARKER now", None)
+    ot = await runtime.handle_chat(session, "REVIEW-MARKER please", None)
+    own = await runtime.handle_chat(session, "INJECT-MARKER here", None)
+
+    assert "attempt to change my instructions" in jb.assistant_message
+    assert "outside what I can help with" in ot.assistant_message
+    assert own.assistant_message.startswith("Please don't ask about staff.")
+    for r in (jb, ot, own):
+        assert "MARKER" not in r.assistant_message and "Reference: run" in r.assistant_message
 
 
 async def test_user_input_redaction_reaches_planner_title_and_storage(session, tmp_path):
@@ -290,7 +318,8 @@ async def test_secret_answer_wins_over_another_block_and_names_it(session, tmp_p
 
     assert response.status == "blocked" and planner.seen == []
     assert "never saw it" in response.assistant_message
-    assert "also stopped by: jailbreak" in response.assistant_message
+    assert "also didn't pass another safety check" in response.assistant_message
+    assert "jailbreak" not in response.assistant_message  # not which one: a rule id can be the word
 
 
 async def test_secret_placeholder_in_a_tool_call_is_refused(session, tmp_path):
@@ -431,7 +460,8 @@ async def test_key_leaving_through_tool_args_is_blocked(session, tmp_path):
     response = await runtime.handle_chat(session, "write the key from the issue to .env", None)
 
     assert response.status == "blocked"
-    assert "secrets_egress" in response.assistant_message
+    assert "would have sent a secret" in response.assistant_message
+    assert "secrets_egress" not in response.assistant_message  # internals stay in the logs
     assert mcp.calls == []
 
 
@@ -450,7 +480,7 @@ async def test_secret_in_tool_args_blocks_before_the_tool_runs(session, tmp_path
     response = await runtime.handle_chat(session, "search for it", None)
 
     assert response.status == "blocked"
-    assert "Tool call blocked by the guard: secrets" in response.assistant_message
+    assert response.assistant_message.startswith("I stopped before running web_search")
     assert mcp.calls == []
 
 
@@ -471,7 +501,8 @@ async def test_blocked_tool_output_is_withheld_and_the_run_continues(session, tm
 
     assert response.status == "completed"
     (result,) = planner.seen[1]["results"]
-    assert result["withheld_by_guard"]["policies"] == ["secrets"]
+    assert "safety check withheld it" in result["withheld_by_guard"]["note"]
+    assert "secrets" not in json.dumps(result)  # no policy ids for the model to repeat
     assert FAKE_TOKEN not in await everything_stored(session)
 
 
@@ -784,7 +815,9 @@ async def test_tool_call_rule_sends_every_call_to_that_tool_for_approval(session
     response = await runtime.handle_chat(session, "search, then email the result", None)
 
     assert response.status == "waiting_approval"
-    assert "rule_approve_emails" in response.assistant_message
+    assert response.assistant_message == "send_email needs a person's approval before it runs."
+    approval = await session.get(ApprovalRequest, response.approval_request_id)
+    assert "rule_approve_emails" in approval.reason  # the reviewer sees why; the user doesn't
     assert [name for name, _ in mcp.calls] == ["web_search"]  # the search wasn't held, the email was
 
 
