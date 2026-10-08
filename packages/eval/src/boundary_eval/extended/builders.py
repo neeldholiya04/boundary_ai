@@ -487,6 +487,7 @@ _SECRET_KINDS = [
     "openai",
     "openai_short",
     "openai_legacy",
+    "openai_typed",
     "anthropic",
     "github",
     "github_pat",
@@ -585,7 +586,9 @@ def build_synthetic_secrets(src: Source) -> list[dict[str, Any]]:
     for stage, templates in _SECRET_TEMPLATES.items():
         for i in range(len(_SECRET_KINDS) * 2):
             kind = _SECRET_KINDS[i % len(_SECRET_KINDS)]
-            text = fill(templates[i % len(templates)], kind)
+            # The second pass shifts the template, so each kind lands in a different sentence even
+            # when the kind count is a multiple of the template count (equal texts are deduplicated).
+            text = fill(templates[(i + i // len(_SECRET_KINDS)) % len(templates)], kind)
             rows.append(
                 _record(
                     rid="",

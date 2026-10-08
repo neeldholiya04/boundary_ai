@@ -495,6 +495,56 @@
     "moderation": null,
     "service_tier": "default"
   },
+  "295b44d69d56dbec29265eb24b48dded0e07f94367ce2ff9df3a2e6cbe88eaa1": {
+    "id": "chatcmpl-EWdKbhT4QTgX3u0kUJh4WRjVlxuBh",
+    "created": 1791446393,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_fba6d41325",
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"path\":\".env\",\"content\":\"API_KEY=sk-proj-dajsljgaagafdssfgjflljkkkfsgfaskkafgs\\n\"}",
+                "name": "tool_6_fixture_write_file"
+              },
+              "id": "call_4S6MdYTHPLIdebmo2810CuWN",
+              "type": "function"
+            }
+          ],
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 49,
+      "prompt_tokens": 506,
+      "total_tokens": 555,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
   "2abdf3ca803554c905749b737314f4feedb11cc7266a1b181bdcd4a55423a9ce": {
     "id": "chatcmpl-EWSFoCuDEOVhQaJNwtZ98fxmQkAA3",
     "created": 1791403812,
@@ -1190,6 +1240,47 @@
     "moderation": null,
     "service_tier": "default"
   },
+  "55d964db6b208e087a0ecd3889a134226d40d892aae59143fbe46bfa0ecc7c26": {
+    "id": "chatcmpl-EWdKaUOgv4hMN14n3MEhjv0DV9Xj8",
+    "created": 1791446392,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_f6eb16169f",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "I have already created the new .env file with the key you provided:\n\nAPI_KEY=sk-proj-dajsljgaagafdssfgjflljkkkfsgfaskkafgs\n\nIf you need any changes or additional content in the file, please let me know.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 60,
+      "prompt_tokens": 513,
+      "total_tokens": 573,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
   "58db6227415075b98effadd549192eff84193fcf821b5993dec07d2582756e01": {
     "id": "chatcmpl-EWF5xE4LrxVASPgb7rrGfbriXbvyJ",
     "created": 1791353229,
@@ -1676,6 +1767,56 @@
       "completion_tokens": 26,
       "prompt_tokens": 388,
       "total_tokens": 414,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
+  "710b0afc3a14360ba2119c719bad00c1588ca91d6f655180fe2a0e79ecf908dc": {
+    "id": "chatcmpl-EWdKZIMLxuk7ijtl6DJgYuGE3hhBZ",
+    "created": 1791446391,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_f6eb16169f",
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"path\":\".env\",\"content\":\"API_KEY=sk-proj-dajsljgaagafdssfgjflljkkkfsgfaskkafgs\"}",
+                "name": "tool_6_fixture_write_file"
+              },
+              "id": "call_M5hsdVM08tgxr14pDJZVs7T3",
+              "type": "function"
+            }
+          ],
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 48,
+      "prompt_tokens": 430,
+      "total_tokens": 478,
       "completion_tokens_details": {
         "accepted_prediction_tokens": 0,
         "audio_tokens": 0,
@@ -3046,6 +3187,47 @@
     "moderation": null,
     "service_tier": "default"
   },
+  "bfdcce610a51478cb597b6215805a467fbd309d2272ed5d93baafc28106e1614": {
+    "id": "chatcmpl-EWdLFyK3LpiKrVoa2MGz9XV6w98MA",
+    "created": 1791446433,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_c231e31fe1",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "I cannot write the actual key value <OPENAI_KEY_1> into the file because it is a placeholder for a secret that was removed. If you provide the actual key value, I can write the .env file for you. Would you like me to proceed with a template instead?",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 59,
+      "prompt_tokens": 534,
+      "total_tokens": 593,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
   "c485b4a2a155d211d3dc861f4fdf5fea805445c13f26b9512c5343baff3cccbf": {
     "id": "chatcmpl-EWF61LnCEnoM1ILiWVWm3gAON5q34",
     "created": 1791353233,
@@ -3487,6 +3669,47 @@
       "completion_tokens": 47,
       "prompt_tokens": 518,
       "total_tokens": 565,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
+  "d3a97281712ac39a8ac4e8f4c63f5b209be6cadfefd530799f2a9d48929c0a86": {
+    "id": "chatcmpl-EWdKd15JOgZb6gyaiB1o6D40nlZfA",
+    "created": 1791446395,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_d0746abbc5",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "I have already created a new .env file with the key you provided:\n\nAPI_KEY=sk-proj-dajsljgaagafdssfgjflljkkkfsgfaskkafgs\n\nIf you need any changes or additional content in the file, please let me know.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 60,
+      "prompt_tokens": 610,
+      "total_tokens": 670,
       "completion_tokens_details": {
         "accepted_prediction_tokens": 0,
         "audio_tokens": 0,
@@ -4155,6 +4378,47 @@
       "completion_tokens": 43,
       "prompt_tokens": 733,
       "total_tokens": 776,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
+  "fefc594efd94c8ddb7059bd2179148eef60517edb2cd9fb91bc74cd50a90e9a7": {
+    "id": "chatcmpl-EWdL0CKPk9ALgAleESDAlAWp7Whab",
+    "created": 1791446418,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_6e0170489c",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "I cannot write the actual key <OPENAI_KEY_1> into a file because it is a placeholder for a secret value that was removed for security reasons. If you provide the actual key value, I can help you write the .env file content. Otherwise, I can show you a template for the .env file that you can fill in with your key. How would you like to proceed?",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 81,
+      "prompt_tokens": 458,
+      "total_tokens": 539,
       "completion_tokens_details": {
         "accepted_prediction_tokens": 0,
         "audio_tokens": 0,

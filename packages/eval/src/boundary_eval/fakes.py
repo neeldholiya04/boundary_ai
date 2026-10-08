@@ -22,6 +22,7 @@ _ALNUM = string.ascii_letters + string.digits
 _UPPER32 = string.ascii_uppercase + "234567"
 _B64 = string.ascii_letters + string.digits + "+/"
 _B64URL = string.ascii_letters + string.digits + "-_"
+_WORDS = ["blue", "fox", "river", "stone", "maple", "otter", "cloud"]
 
 
 def _pick(rng: random.Random, alphabet: str, n: int) -> str:
@@ -81,6 +82,15 @@ GENERATORS: dict[str, Callable[[random.Random], str]] = {
     # providers' prefixes, and a token from a vendor no rule names.
     "openai_short": lambda r: "sk-proj-" + _mixed(r, 20 + r.randint(0, 12)),
     "openai_legacy": lambda r: "sk-" + _mixed(r, 48),
+    # A key typed by hand or made up: a real prefix, then lowercase letters from a few keys. No digit,
+    # no capital, low entropy: it passed every stage before v8, and a leaked typo of a real key looks
+    # the same.
+    "openai_typed": lambda r: (
+        "sk-proj-" + _pick(r, r.choice(["asdfjklg", "qwertyui", "zxcvbnmh"]), 30 + r.randint(0, 8))
+    ),
+    # A plain secret only its variable name gives away (DB_PASSWORD=bluefoxriver): lowercase words
+    # and two digits, far below any entropy floor.
+    "weak_secret": lambda r: "".join(r.choice(_WORDS) for _ in range(3)) + str(r.randint(10, 99)),
     "groq": lambda r: "gsk_" + _mixed(r, 52),
     "huggingface": lambda r: "hf_" + _mixed(r, 34),
     "xai": lambda r: "xai-" + _mixed(r, 80),

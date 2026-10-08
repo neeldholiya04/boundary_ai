@@ -18,6 +18,9 @@ FAKE_STRIPE_TEST = "sk_" + "test_" + "4eC39HqLyjWDarjtT1zdp7dc"
 # Shapes the v1 ruleset missed: a short project key (the live incident), a legacy key, other providers.
 FAKE_OPENAI_SHORT = "sk-" + "proj-" + "Qm7Tx2LpR9vK4wZb8NcY"
 FAKE_OPENAI_LEGACY = "sk-" + "T4vB9qLm2XcR7zKp5WnY8sJd3FhG6tQa1VeU0oIr4MbN2kLx"
+# Typed by hand: lowercase, 8 distinct letters, no digit.
+FAKE_MAPBOX_BODY = "eyJ1IjoiZXhhbXBsZSIsImEiOiJjbGs5In0." + "Qx7vLm2Rk9pZ4tY6wH8nB1"
+FAKE_OPENAI_TYPED = "sk-" + "proj-" + "asdfjklgasdkfjlagsdfjkalsdjfgkals"
 FAKE_GROQ = "gsk" + "_" + "Lp3vQ8mZx2RkT7wYb5NcJ9dF4hG6sAqE1uV0oIrK3tMy8BnWz2Xc"
 FAKE_HF = "hf" + "_" + "Rk4mTq8ZxL2vB7nYp3WcJ9dF5hG6sAqE1u"
 FAKE_OPAQUE = "Zq8" + "Lm2XcR7vK4wTb9NpY3sJd6FhG5tQa1VeU0oIrB"
@@ -58,6 +61,24 @@ def test_entropy():
         (f"GROQ: {FAKE_GROQ}", "groq_key"),
         (f"token {FAKE_HF}", "huggingface_token"),
         (f"use this for the webhook: {FAKE_OPAQUE} thanks", "high_entropy_token"),
+        # v2.1: a typed key (no digit, no capital, 8 distinct letters) passed every stage.
+        (f"put this key there: {FAKE_OPENAI_TYPED}", "openai_prefixed_key"),
+        (f'{{"path": ".env", "content": "OPENAI_API_KEY={FAKE_OPENAI_TYPED}"}}', "openai_prefixed_key"),
+        ("DB_PASSWORD=bluefoxriver42", "env_credential"),
+        ('SECRET_KEY="maplestoneotter"', "env_credential"),
+        ("PGPASSWORD=bluefoxriver42", "env_credential"),
+        ("    DB_PASSWORD: bluefoxriver42", "env_credential_mapping"),
+        ('{"env": {"OPENAI_API_KEY": "maplestone42otter"}}', "env_credential_mapping"),
+        # Values that start with `$`/`%` or contain dots are still secrets for the other rules.
+        ('password: "$uP3rS3cr3t!x"', "password_assignment"),
+        ("postgres://app:$Qx7v!Lm2Rk9@db:5432/app", "connection_string_password"),
+        ("postgres://app:%40Qx7vLm2Rk9pZ@db/app", "connection_string_password"),
+        ("Authorization: Bearer ya29." + "a0AfBQx7vLm2Rk9pZ4tY6wH8nB1cD3eF5gJ7kM9qS", "authorization_header"),
+        ("MAPBOX_ACCESS_TOKEN=sk." + FAKE_MAPBOX_BODY, "env_credential"),
+        ("here's my new token: q8w7e6r5t4y3u2i1o0p9", "phrasing_with_separator"),
+        # A key ending in `-` has no word boundary after it; a token can end a sentence.
+        ("the new one is AIza" + "Sy9xQ2mN7vB4kL1pR8tZ6wC3jH5fD0gA-u-. Update it", "google_api_key"),
+        (f"I won't display the full key, but it is {FAKE_OPAQUE}.", "high_entropy_token"),
     ],
 )
 async def test_secret_rules_catch(secrets, text, rule):
@@ -95,6 +116,35 @@ async def test_secret_rules_catch(secrets, text, rule):
         "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq0",
         "https://myteam.slack.com/archives/C024BE91L/p1712345678901234",
         "postgres://postgres:postgres@localhost:5432/dev",
+        # v2.1 decoys: placeholders and references next to credential names, code reading a variable.
+        "export OPENAI_API_KEY=sk-proj-your-key-here",
+        "OPENAI_API_KEY=sk-proj-aaaaaaaaaaaaaaaaaaaaaaaa",
+        "OPENAI_API_KEY=$OPENAI_API_KEY",
+        "OPENAI_API_KEY=<OPENAI_KEY_1>",
+        "GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+        "SECRET_KEY = settings.SECRET_KEY",
+        "API_TOKEN = os.environ['API_TOKEN']",
+        "API_TOKEN = settings.API_TOKEN",
+        "PASSWORD=changeme",
+        "The key: authorisation flows need a refresh_token_rotation step.",
+        # Review findings: placeholders, constants, public variables, branch names.
+        "OPENAI_API_KEY=your_openai_api_key",
+        "OPENAI_API_KEY=your-openai-api-key-here",
+        "SECRET_KEY=change-me-in-production",
+        "PASSWORD=REPLACE_ME_NOW",
+        "API_KEY=undefined",
+        "INVALID_TOKEN = 'invalid_token'",
+        'HEADER_API_KEY = "X-Api-Key"',
+        "CSRF_TOKEN = 'csrftoken'",
+        'API_KEY: "Required field"',
+        "MAX_TOKEN=1048576000",
+        "SECRET_KEY=get_random_secret_key()",
+        "NEXT_PUBLIC_API_KEY=pk_live_mapdisplay",
+        "Fix token-refresh race in auth-service-v2-handler (#4821)",
+        "the API key - see docs/auth/api-keys-2024-rotation.md",
+        "password-reset-token-expiry-2h30m-config-v2",
+        "key-vault: kv-prod-eastus2-01a7f3c9",
+        "The sk-proj-management-dashboard-redesign-v2 branch",
     ],
 )
 async def test_secret_rules_ignore_decoys(secrets, text):
@@ -225,6 +275,11 @@ def test_decodes_to_text_tells_encoded_prose_from_random_keys():
         "postgres://" * 2_000,
         "https://x.com/" + "aB3/" * 5_000,
         "?api_key=" * 2_000,
+        "key-" * 5_000,
+        "token: " + "a1-" * 6_000,
+        "API_KEY=" * 2_500,
+        "A_" * 10_000 + "TOKEN=",
+        "sk-proj-" + "ab-" * 6_000,
     ],
 )
 def test_secret_rules_stay_linear_on_adversarial_input(secrets, text):
@@ -283,14 +338,14 @@ async def test_base64_hidden_key_is_found_and_the_whole_blob_redacted(decoding):
     blob = base64.b64encode(f"OPENAI_API_KEY={FAKE_OPENAI_SHORT}".encode()).decode()
     text = f"env_b64: {blob}\n"
     detection = await decoding.detect(text, CheckContext())
-    assert "matched secrets:openai_key (in base64)" in detection.reasons
+    assert "matched secrets:openai_prefixed_key (in base64)" in detection.reasons
     assert any(text[s.start : s.end] == blob for s in detection.spans)
 
 
 async def test_spaced_out_key_is_found(decoding):
     text = f"here: {' '.join(FAKE_OPENAI_SHORT)} done"
     detection = await decoding.detect(text, CheckContext())
-    assert "matched secrets:openai_key (spaced out)" in detection.reasons
+    assert "matched secrets:openai_prefixed_key (spaced out)" in detection.reasons
 
 
 @pytest.mark.parametrize(
@@ -353,7 +408,8 @@ async def test_many_uuids_and_hashes_cannot_push_a_key_out_of_reach(decoding):
 
     noise = " ".join(str(uuid.UUID(int=i)) + " " + "f" * 40 for i in range(200))
     text = f"{noise} env={_b64(f'export OPENAI_API_KEY={FAKE_OPENAI_SHORT} # prod')}"
-    assert "matched secrets:openai_key (in base64)" in (await decoding.detect(text, CheckContext())).reasons
+    reasons = (await decoding.detect(text, CheckContext())).reasons
+    assert "matched secrets:openai_prefixed_key (in base64)" in reasons
 
 
 @pytest.mark.parametrize("urlsafe", [False, True])
