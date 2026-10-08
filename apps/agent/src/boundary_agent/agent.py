@@ -15,6 +15,8 @@ from boundary_agent.guarding import (
     GuardOutcome,
     redacted_tool_result,
     redaction_notice,
+    secret_placeholder_message,
+    secret_withheld_message,
     withheld_result,
 )
 from boundary_agent.llm import BasePlanner
@@ -110,6 +112,44 @@ class AgentRuntime:
             conversation_id=conversation.id,
             run_id=run.id,
         )
+        # A secret was removed from the request. The model only has a placeholder, so anything it did
+        # with "the key" would be wrong: writing the placeholder over the real value, then saying it
+        # wrote the key. Stop here and say so plainly instead of running the planner.
+        redacted_by_secrets = (
+            self.guard is not None
+            and outcome is not None
+            and bool(set(outcome.policies(Action.REDACT)) & self.guard.secret_policies)
+        )
+        if redacted_by_secrets:
+            # Only placeholders the guard just put in. Counted, not looked up: a user quoting
+            # `<OPENAI_KEY_1>` from an earlier answer next to a new key must not hide the new one.
+            new = [
+                p
+                for p in self.guard.secret_placeholders(user_text)
+                if user_text.count(p) > user_message.count(p)
+            ]
+            if withheld := new:
+                # Checked before a block or a review: those stop the run too, but the answer should
+                # say what happened to the key. The other policies are named after it.
+                stopped_by = outcome.policies(Action.BLOCK) + outcome.policies(Action.ESCALATE)
+                await self.audit_logger.record(
+                    session,
+                    "guard.secret_withheld",
+                    {"stage": "user_input", "placeholders": withheld},
+                    conversation_id=conversation.id,
+                    run_id=run.id,
+                )
+                response = self._blocked_response(
+                    conversation_id=conversation.id,
+                    run_id=run.id,
+                    run=run,
+                    executed_steps=[],
+                    session=session,
+                    assistant_message=secret_withheld_message(withheld, also_stopped_by=stopped_by),
+                )
+                await session.commit()
+                return response
+
         if outcome is not None and outcome.action is Action.BLOCK:
             response = self._blocked_response(
                 conversation_id=conversation.id,
@@ -127,7 +167,6 @@ class AgentRuntime:
             )
             await session.commit()
             return response
-
         tools = await self.mcp_manager.list_tools(session, refresh=False)
         await self.audit_logger.record(
             session,
@@ -384,10 +423,41 @@ class AgentRuntime:
                 executed_tool_calls=self._serialize_steps(executed_steps),
             )
 
+        # A secret's placeholder used as a value in a tool call (`OPENAI_API_KEY=<OPENAI_KEY_1>`) is
+        # the model writing or sending "the key" it never had. Refuse before anything runs. A
+        # placeholder merely mentioned (a note about a redacted log) goes through.
+        args_text = json.dumps(tool_call.arguments, sort_keys=True, ensure_ascii=False)
+        held = (
+            self.guard.assigned_secret_placeholders(args_text)
+            if self.guard is not None and self.guard.secrets_enforced
+            else []
+        )
+        if held:
+            if approval_context is not None:
+                approval_context.status = "superseded"
+                approval_context.decided_at = datetime.utcnow()
+                approval_context.decision_comment = "Tool call carried a secret placeholder."
+            await self.audit_logger.record(
+                session,
+                "guard.secret_placeholder_blocked",
+                {"tool_name": tool_call.tool_name, "placeholders": held},
+                conversation_id=conversation.id,
+                run_id=run.id,
+            )
+            return self._blocked_response(
+                conversation_id=conversation.id,
+                run_id=run.id,
+                run=run,
+                executed_steps=executed_steps,
+                tool_call=tool_call,
+                session=session,
+                assistant_message=secret_placeholder_message(tool_call.tool_name, held),
+            )
+
         outcome = await self._guard(
             session,
             Stage.TOOL_ARGS,
-            json.dumps(tool_call.arguments, sort_keys=True, ensure_ascii=False),
+            args_text,
             conversation,
             run,
             tool_name=tool_call.tool_name,

@@ -1831,6 +1831,47 @@
     "moderation": null,
     "service_tier": "default"
   },
+  "81c3853829664dc17997173ab88ae6248e3a86ce2dd8b7f76f66a6d2f3c389c3": {
+    "id": "chatcmpl-EWestRk5ZzYT49YM19OT4cpbQRpSS",
+    "created": 1791452363,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_1479fe217d",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "I have noted the new field to be added: claude_key = sk-ant-eeuqqiiruyueewr. Could you please specify where you want this field to be added? For example, is it in a file, a database, or some other location?",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 57,
+      "prompt_tokens": 456,
+      "total_tokens": 513,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
   "845e5cccf10fdeef6337ea2e8b7b6e50d0353479d6996ab0dadfe8ef5f7e0bef": {
     "id": "chatcmpl-EWF5heln43Kjd8RNwQLzpKjDZUOvK",
     "created": 1791353213,
@@ -3892,6 +3933,47 @@
       "completion_tokens": 77,
       "prompt_tokens": 738,
       "total_tokens": 815,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "audio_tokens": 0,
+        "reasoning_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "moderation": null,
+    "service_tier": "default"
+  },
+  "e42f0b3db3bbb14c3f96d64652040c274dee8aac35bc4c178590f0fd34819f34": {
+    "id": "chatcmpl-EWessMHt3qIJsJkLdwk2jE2OaPgQG",
+    "created": 1791452362,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "object": "chat.completion",
+    "system_fingerprint": "fp_f6eb16169f",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "The new field \"claude_key\" with the value \"sk-ant-eeuqqiiruyueewr\" has been noted. If you want me to add this field to a specific file or database, please provide the location or context. Otherwise, the field is acknowledged.",
+          "role": "assistant",
+          "tool_calls": null,
+          "function_call": null,
+          "provider_specific_fields": {
+            "refusal": null
+          },
+          "annotations": []
+        },
+        "provider_specific_fields": {}
+      }
+    ],
+    "usage": {
+      "completion_tokens": 58,
+      "prompt_tokens": 378,
+      "total_tokens": 436,
       "completion_tokens_details": {
         "accepted_prediction_tokens": 0,
         "audio_tokens": 0,

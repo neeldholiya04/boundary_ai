@@ -5,6 +5,7 @@ description = "Composable input/output filtering layer for tool-calling LLM agen
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "google-re2>=1.1",
   "json-repair>=0.30",
   "jsonschema>=4.23",
   "pydantic>=2.9",

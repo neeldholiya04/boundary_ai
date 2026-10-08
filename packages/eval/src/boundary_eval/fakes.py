@@ -88,6 +88,14 @@ GENERATORS: dict[str, Callable[[random.Random], str]] = {
     "openai_typed": lambda r: (
         "sk-proj-" + _pick(r, r.choice(["asdfjklg", "qwertyui", "zxcvbnmh"]), 30 + r.randint(0, 8))
     ),
+    # The third live leak (v8): `sk-ant-` + 15 typed letters, shorter than any real Anthropic key.
+    "anthropic_typed": lambda r: "sk-ant-" + _pick(r, r.choice(["asdfjklg", "qwertyui", "zxcvbnmh"]), 15),
+    # Formats only the imported gitleaks rules know (no hand-written rule matches them).
+    "digitalocean": lambda r: "dop_v1_" + _pick(r, "0123456789abcdef", 64),
+    "doppler": lambda r: "dp.pt." + _pick(r, _ALNUM, 43),
+    "pulumi": lambda r: "pul-" + _pick(r, "0123456789abcdef", 40),
+    "planetscale": lambda r: "pscale_tkn_" + _pick(r, _ALNUM, 43),
+    "postman": lambda r: "PMAK-" + _pick(r, "0123456789abcdef", 24) + "-" + _pick(r, "0123456789abcdef", 34),
     # A plain secret only its variable name gives away (DB_PASSWORD=bluefoxriver): lowercase words
     # and two digits, far below any entropy floor.
     "weak_secret": lambda r: "".join(r.choice(_WORDS) for _ in range(3)) + str(r.randint(10, 99)),

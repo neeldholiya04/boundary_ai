@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import re2
+import regex
 import yaml
 
 from boundary_guard.core.detector import Detector, file_digest, register_detector
@@ -25,7 +27,9 @@ from boundary_guard.core.types import CheckContext, Detection, Span
 # (the policy timeout then still fires, even though the thread itself can't be cancelled).
 _THREAD_THRESHOLD_CHARS = 20_000
 
-_FLAG_NAMES = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL, "x": re.VERBOSE}
+# Rule patterns use the `regex` module: imported rulesets (gitleaks) are written for Go's RE2, which
+# allows scoped inline flags (`(?i)` mid-pattern) that `re` rejects.
+_FLAG_NAMES = {"i": regex.IGNORECASE, "m": regex.MULTILINE, "s": regex.DOTALL, "x": regex.VERBOSE}
 
 
 def b64_text(value: str, *, min_printable: float = 0.9) -> str | None:
@@ -61,14 +65,30 @@ def shannon_entropy(value: str) -> float:
     return -sum((n / total) * math.log2(n / total) for n in counts.values())
 
 
+def _compile(pattern: str, flags: int, engine: str) -> Any:
+    """`regex` (lookarounds, backtracking) for hand-written rules; `re2` (linear time, no lookarounds)
+    for imported rules written for RE2, which can backtrack for seconds under `regex`."""
+    if engine == "re2":
+        if flags:
+            raise ValueError("re2 rules take inline flags, not `flags:`")
+        return re2.compile(pattern)
+    if engine != "regex":
+        raise ValueError(f"unknown regex engine {engine!r} (known: regex, re2)")
+    return regex.compile(pattern, flags)
+
+
 @dataclass(slots=True)
 class Rule:
     id: str
     label: str
-    pattern: re.Pattern[str]
+    pattern: Any  # a compiled `regex` or `re2` pattern; both have finditer / group / span
     group: str | int | None
     min_entropy: float | None
     exclude_encoded_text: bool = False
+    # Cheap prefilter: the rule only runs when one of these (lower-case) appears in the text.
+    keywords: tuple[str, ...] = ()
+    # Rule-scoped allowlist: values matching any of these are not findings for this rule.
+    exclude: tuple[regex.Pattern[str], ...] = ()
 
 
 # Decoded views (`decode:` in the policy): a key hidden as base64 or spelled out with spaces. The
@@ -140,7 +160,8 @@ class RegexRulesDetector(Detector):
           - id: aws_access_key_id
             label: AWS_KEY
             pattern: '\\b(?:AKIA|ASIA)[0-9A-Z]{16}\\b'
-            group: 0                     # optional capture group (name or index) holding the value
+            group: 0                     # optional capture group (name, index, or `first`: the
+                                         # first group that matched) holding the value
             min_entropy: 3.0             # optional, bits/char of the captured value
             exclude_encoded_text: true   # optional, skip values that are base64 of readable text
             flags: [i]
@@ -168,10 +189,21 @@ class RegexRulesDetector(Detector):
         self.ruleset_path = ruleset_path
         raw = yaml.safe_load(ruleset_path.read_text(encoding="utf-8"))
         self.name: str = raw.get("name", ruleset_path.stem)
-        self.allowlist = [re.compile(p) for p in raw.get("allowlist", [])]
+        # `include:` pulls in more rules and allowlist entries from other files (relative paths),
+        # after this file's own, so hand-written rules name the placeholder when both match.
+        self.files = [ruleset_path]
+        allow_patterns = list(raw.get("allowlist", []))
+        items = list(raw["rules"])
+        for rel in raw.get("include", []):
+            path = ruleset_path.parent / rel
+            extra = yaml.safe_load(path.read_text(encoding="utf-8"))
+            self.files.append(path)
+            allow_patterns += extra.get("allowlist", [])
+            items += extra.get("rules", [])
+        self.allowlist = [regex.compile(p) for p in allow_patterns]
 
         rules: list[Rule] = []
-        for item in raw["rules"]:
+        for item in items:
             if enabled is not None and item["id"] not in enabled:
                 continue
             flags = 0
@@ -181,10 +213,12 @@ class RegexRulesDetector(Detector):
                 Rule(
                     id=item["id"],
                     label=item.get("label", "MATCH"),
-                    pattern=re.compile(item["pattern"], flags),
+                    pattern=_compile(item["pattern"], flags, item.get("engine", "regex")),
                     group=item.get("group"),
                     min_entropy=item.get("min_entropy"),
                     exclude_encoded_text=bool(item.get("exclude_encoded_text", False)),
+                    keywords=tuple(k.lower() for k in item.get("keywords", [])),
+                    exclude=tuple(regex.compile(x) for x in item.get("exclude", [])),
                 )
             )
         if not rules:
@@ -215,15 +249,26 @@ class RegexRulesDetector(Detector):
     def _match(self, text: str, *, known: bool = True) -> list[tuple[Span, str]]:
         """Rule and known-secret hits on one view of the text, as (span, reason) pairs."""
         hits: list[tuple[Span, str]] = []
+        lowered: str | None = None
         for rule in self.rules:
+            if rule.keywords:
+                lowered = lowered if lowered is not None else text.lower()
+                if not any(k in lowered for k in rule.keywords):
+                    continue
             for m in rule.pattern.finditer(text):
-                group = rule.group if rule.group is not None else 0
+                if rule.group == "first":
+                    # The first group that took part in the match (alternatives use different groups).
+                    group = next((g for g in range(1, len(m.groups()) + 1) if m.group(g)), 0)
+                else:
+                    group = rule.group if rule.group is not None else 0
                 value = m.group(group)
                 if not value:
                     continue
                 if rule.min_entropy is not None and shannon_entropy(value) < rule.min_entropy:
                     continue
                 if any(a.search(value) for a in self.allowlist):
+                    continue
+                if any(x.search(value) for x in rule.exclude):
                     continue
                 if rule.exclude_encoded_text and decodes_to_text(value):
                     continue
@@ -297,7 +342,7 @@ class RegexRulesDetector(Detector):
     def fingerprint(self) -> str:
         # The env var patterns, never the values: the config hash must not depend on (or leak) a key.
         return (
-            f"{file_digest(self.ruleset_path)}:{','.join(self.enabled or ['*'])}"
+            f"{'+'.join(file_digest(f) for f in self.files)}:{','.join(self.enabled or ['*'])}"
             f":decode={','.join(self.decode)}:known={','.join(self.known_secrets_env)}"
             f":first={self.transform}"
         )

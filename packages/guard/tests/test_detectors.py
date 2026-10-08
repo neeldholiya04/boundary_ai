@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import random
+import string
 import time
 
 import pytest
@@ -75,6 +77,13 @@ def test_entropy():
         ("postgres://app:%40Qx7vLm2Rk9pZ@db/app", "connection_string_password"),
         ("Authorization: Bearer ya29." + "a0AfBQx7vLm2Rk9pZ4tY6wH8nB1cD3eF5gJ7kM9qS", "authorization_header"),
         ("MAPBOX_ACCESS_TOKEN=sk." + FAKE_MAPBOX_BODY, "env_credential"),
+        # v2.2: a known prefix at any length (the typed sk-ant- leak), lower-case .env names, and
+        # formats only the imported gitleaks rules know.
+        ("add new field, claude_key = sk-ant-" + "qwmzkdhrtplvnbc", "provider_prefix"),
+        ("claude_key=" + "qwmzkdhrtplvn", "dotenv_credential_line"),
+        ("export stripe_secret=" + "hunter2hunter2", "dotenv_credential_line"),
+        ("token ghp_" + "abcdEFGH1234", "provider_prefix_weak"),
+        ("pulumi login with pul-" + "0123456789abcdef" * 2 + "01234567", "gl_pulumi_api_token"),
         ("here's my new token: q8w7e6r5t4y3u2i1o0p9", "phrasing_with_separator"),
         # A key ending in `-` has no word boundary after it; a token can end a sentence.
         ("the new one is AIza" + "Sy9xQ2mN7vB4kL1pR8tZ6wC3jH5fD0gA-u-. Update it", "google_api_key"),
@@ -145,6 +154,23 @@ async def test_secret_rules_catch(secrets, text, rule):
         "password-reset-token-expiry-2h30m-config-v2",
         "key-vault: kv-prod-eastus2-01a7f3c9",
         "The sk-proj-management-dashboard-redesign-v2 branch",
+        "from huggingface_hub import hf_hub_download; model = hf_classifier(path)",
+        "Anthropic keys start with sk-ant-api03- and are long",
+        "see the sk-ant-api-key-docs page",
+        "ASIANCUISINE recipes",
+        "sort_key=created_at",
+        "kms_key_id=alias123456",
+        "The xoxb- prefix marks Slack bot tokens.",
+        "claude_key=your-claude-api-key",
+        # Second review: Python, model and branch names.
+        "    self.tokenizer = tokenizer\n    num_tokens = tokenizer",
+        "self.auth_handler = authentication",
+        'client = Client(api_key="sk-api-key")',
+        'api_key="sk-api-key"',
+        "switch the model to pplx-70b-online or pplx-7b-chat",
+        "use xai-grok-4.1-fast",
+        "info = hf_cache_info.size_on_disk; api = hf_api.HfApi()",
+        "branch: dop_v1_cleanup2",
     ],
 )
 async def test_secret_rules_ignore_decoys(secrets, text):
@@ -280,6 +306,7 @@ def test_decodes_to_text_tells_encoded_prose_from_random_keys():
         "API_KEY=" * 2_500,
         "A_" * 10_000 + "TOKEN=",
         "sk-proj-" + "ab-" * 6_000,
+        "key: " + "a." * 40 + "1",  # exponential under the first v8 generic_assignment lookahead
     ],
 )
 def test_secret_rules_stay_linear_on_adversarial_input(secrets, text):
@@ -287,6 +314,41 @@ def test_secret_rules_stay_linear_on_adversarial_input(secrets, text):
     started = time.perf_counter()
     secrets._scan(text)
     assert time.perf_counter() - started < 0.5
+
+
+def test_every_rule_stays_fast_on_text_built_from_its_own_keywords(secrets):
+    # Imported rules only run when a keyword appears, so the worst case is text full of that keyword.
+    # Several gitleaks patterns took seconds under a backtracking engine; they run on RE2 now.
+    slowest = (0.0, "")
+    for rule in secrets.rules:
+        for kw in list(rule.keywords)[:3] or ["key"]:
+            n = 20_000 // (len(kw) + 2)
+            for text in ((kw + " ") * n, (kw + "=") * n, (kw + "-a") * n, kw + " = " + "a" * 20_000):
+                started = time.perf_counter()
+                for _ in rule.pattern.finditer(text):
+                    pass
+                slowest = max(slowest, (time.perf_counter() - started, rule.id))
+    assert slowest[0] < 0.1, slowest
+
+
+async def test_imported_rules_redact_the_whole_secret(secrets):
+    # gitleaks reports the first group that matched; a repeated group must not stand for the secret.
+    rng = random.Random(3)
+    hexs = lambda n: "".join(rng.choice("0123456789abcdef") for _ in range(n))  # noqa: E731
+    guid = lambda: f"{hexs(8)}-{hexs(4)}-{hexs(4)}-{hexs(4)}-{hexs(12)}"  # noqa: E731
+    teams = f"https://acme.webhook.office.com/webhookb2/{guid()}@{guid()}/IncomingWebhook/{hexs(32)}/{guid()}"
+    atlassian = "ATATT3" + "".join(
+        rng.choice(string.ascii_letters + string.digits + "_-=") for _ in range(186)
+    )
+    for secret in (teams, atlassian):
+        detection = await secrets.detect(f"see {secret} now", CheckContext())
+        assert any(s.end - s.start == len(secret) for s in detection.spans), detection
+
+
+def test_imported_provider_rules_run_on_re2(secrets):
+    imported = [r for r in secrets.rules if r.id.startswith("gl_")]
+    assert len(imported) > 200
+    assert all(type(r.pattern).__module__.startswith("re2") for r in imported)
 
 
 async def test_private_key_in_a_json_value_redacts_to_valid_json(policies_dir):
@@ -506,9 +568,8 @@ async def test_secrets_redact_first_so_other_policies_never_see_the_key(policies
     from boundary_guard import GuardConfig
 
     (tmp_path / "rules").mkdir()
-    (tmp_path / "rules" / "secrets.v2.yaml").write_text(
-        (policies_dir / "rules" / "secrets.v2.yaml").read_text()
-    )
+    for name in ("secrets.v2.yaml", "providers.gitleaks.yaml"):  # the ruleset and its include
+        (tmp_path / "rules" / name).write_text((policies_dir / "rules" / name).read_text())
     secrets_detector = {"type": "regex_rules", "ruleset": "rules/secrets.v2.yaml", "redact_first": True}
     config = GuardConfig.model_validate(
         {
