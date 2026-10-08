@@ -39,7 +39,7 @@ latency:
 # recorded cassette. A regression gate: every scenario is compared with the committed baseline, and
 # an attack that was stopped there but now succeeds, or a benign task that passed but now fails,
 # fails the build (named in the report). Improvements and new scenarios are reported, never fail.
-# With 5 attack / 3 benign test scenarios a rate moves 20-33 points per scenario, so absolute
+# With 9 attack / 4 benign test scenarios a rate moves 11-25 points per scenario, so absolute
 # ceilings would be noise; max_asr / min_benign_task_success can still be set if wanted.
 # A PR that changes the numbers on purpose (new scenario, prompt change + re-recorded cassette,
 # policy change) regenerates the baseline in the same PR:
