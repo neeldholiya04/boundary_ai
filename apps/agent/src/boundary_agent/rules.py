@@ -38,7 +38,10 @@ DEFAULT_TIMEOUT_MS: dict[str, int] = {
 # rule only has to say what to deny.
 TOPIC_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 TOPIC_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
-TOPIC_ALLOW_FILE = "topics/research.v2.yaml"
+TOPIC_ALLOW_FILE = "topics/research.v3.yaml"
+# As the shipped topic policy (v10): a rule's deny examples must really resemble the request, so
+# conversation that resembles nothing ("ok continue") isn't caught by whichever example is nearest.
+TOPIC_MIN_SIMILARITY = 0.25
 
 
 class RuleCheck(BaseModel):
@@ -53,13 +56,15 @@ class RuleCheck(BaseModel):
     keywords: list[Annotated[str, Field(max_length=200)]] | None = Field(default=None, max_length=500)
     case_sensitive: bool = False
     whole_word: bool = True
+    # Keywords of 7+ characters also match with one letter edit (`hemkes` for `hemkesh`).
+    fuzzy: bool = False
     # pattern (the detector also caps count, length and repetition)
     patterns: list[str] | None = Field(default=None, max_length=50)
     flags: list[Literal["i", "m", "s"]] = Field(default_factory=list)
     # topic: example requests the rule is about; optional extra on-purpose examples
     examples: list[Annotated[str, Field(max_length=500)]] | None = Field(default=None, max_length=50)
     allow_examples: list[Annotated[str, Field(max_length=500)]] | None = Field(default=None, max_length=50)
-    margin: float = Field(default=0.0, ge=-1.0, le=1.0)
+    margin: float = Field(default=0.05, ge=-1.0, le=1.0)
     # llm_judge
     policy: str | None = Field(default=None, max_length=2000)
     model: str | None = Field(default=None, max_length=120)
@@ -96,6 +101,8 @@ class RuleSpec(BaseModel):
 
     name: str = Field(min_length=1, max_length=80)
     description: str | None = Field(default=None, max_length=500)
+    # Shown to the user when the rule stops something. Unset: a neutral line that names no keyword.
+    message: str | None = Field(default=None, max_length=300)
     stages: list[Stage] = Field(min_length=1)
     # Only these tools (tool_args / tool_output only). None = every tool.
     tools: list[Annotated[str, Field(max_length=120)]] | None = Field(
@@ -153,6 +160,7 @@ def detector_params(spec: RuleSpec, *, judge_model: str | None) -> dict[str, Any
             "keywords": check.keywords,
             "case_sensitive": check.case_sensitive,
             "whole_word": check.whole_word,
+            "fuzzy": check.fuzzy,
             "label": label,
         }
     if check.type == "pattern":
@@ -164,6 +172,8 @@ def detector_params(spec: RuleSpec, *, judge_model: str | None) -> dict[str, Any
             "revision": TOPIC_REVISION,
             "deny_exemplars": check.examples,
             "margin": check.margin,
+            "min_similarity": TOPIC_MIN_SIMILARITY,
+            "min_words": 3,
         }
         if check.allow_examples:
             params["allow_exemplars"] = check.allow_examples
@@ -180,6 +190,11 @@ def detector_params(spec: RuleSpec, *, judge_model: str | None) -> dict[str, Any
     return {"type": "always", "reason": spec.description or f"rule: {spec.name}"}
 
 
+# What a user is told when an operator rule stops them, unless the rule says otherwise. It names no
+# keyword or pattern: those are often the sensitive part (codenames, people's names).
+RULE_MESSAGE = "This was stopped by a rule your administrator set up."
+
+
 def compile_rule(
     spec: RuleSpec,
     policy_id: str,
@@ -193,6 +208,7 @@ def compile_rule(
         {
             "id": policy_id,
             "description": spec.description or spec.name,
+            "message": spec.message or RULE_MESSAGE,
             "stages": [s.value for s in spec.stages],
             "tools": spec.tools,
             "detector": detector_params(spec, judge_model=judge_model),

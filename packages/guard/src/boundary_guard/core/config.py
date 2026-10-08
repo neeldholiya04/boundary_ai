@@ -38,6 +38,9 @@ class PolicyConfig(BaseModel):
 
     id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     description: str | None = None
+    # What the end user is told when this policy stops something. Unset: the app's message for the
+    # kind of policy (what it `detects`). Never the detector's reasons, which name scores and exemplars.
+    message: str | None = Field(default=None, max_length=300)
     stages: list[Stage] = Field(min_length=1)
     detector: DetectorConfig
     action: Action

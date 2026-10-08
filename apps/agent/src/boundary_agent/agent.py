@@ -17,6 +17,7 @@ from boundary_agent.guarding import (
     redaction_notice,
     secret_placeholder_message,
     secret_withheld_message,
+    user_block_message,
     withheld_result,
 )
 from boundary_agent.llm import BasePlanner
@@ -145,7 +146,7 @@ class AgentRuntime:
                     run=run,
                     executed_steps=[],
                     session=session,
-                    assistant_message=secret_withheld_message(withheld, also_stopped_by=stopped_by),
+                    assistant_message=secret_withheld_message(withheld, also_stopped=bool(stopped_by)),
                 )
                 await session.commit()
                 return response
@@ -157,7 +158,7 @@ class AgentRuntime:
                 run=run,
                 executed_steps=[],
                 session=session,
-                assistant_message=f"Request blocked by the guard: {outcome.reason()}",
+                assistant_message=user_block_message(self.guard, outcome, Stage.USER_INPUT, run_id=run.id),
             )
             await session.commit()
             return response
@@ -350,7 +351,9 @@ class AgentRuntime:
                         run=run,
                         executed_steps=executed_steps,
                         session=session,
-                        assistant_message=f"The answer was withheld by the guard: {outcome.reason()}",
+                        assistant_message=user_block_message(
+                            self.guard, outcome, Stage.FINAL_OUTPUT, run_id=run.id
+                        ),
                     )
                 if outcome is not None and outcome.action is Action.ESCALATE:
                     return await self._request_content_review(
@@ -383,7 +386,14 @@ class AgentRuntime:
             executed_steps.append(tool_response)
 
         assistant_message = "Stopped after reaching the maximum number of tool steps for this run."
-        session.add(Message(conversation_id=conversation.id, role="assistant", content=assistant_message))
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=assistant_message,
+                metadata_json={"notice": "stopped"},
+            )
+        )
         run.status = "failed"
         run.latest_response = assistant_message
         await self.audit_logger.record(
@@ -476,7 +486,9 @@ class AgentRuntime:
                 executed_steps=executed_steps,
                 tool_call=tool_call,
                 session=session,
-                assistant_message=f"Tool call blocked by the guard: {outcome.reason()}",
+                assistant_message=user_block_message(
+                    self.guard, outcome, Stage.TOOL_ARGS, run_id=run.id, tool_name=tool_call.tool_name
+                ),
             )
         guard_escalation = outcome is not None and outcome.action is Action.ESCALATE
 
@@ -551,9 +563,22 @@ class AgentRuntime:
             session.add(approval)
             await session.flush()
             run.status = "waiting_approval"
-            run.paused_reason = reason[:255]
-            assistant_message = f"Tool call requires approval: {reason}"
-            session.add(Message(conversation_id=conversation.id, role="assistant", content=assistant_message))
+            # The approval keeps the full reason for whoever decides; the user gets a plain line. A tool
+            # policy's reason is written by the operator for users; the guard's names scores.
+            assistant_message = (
+                f"{tool_call.tool_name} needs a person's approval before it runs: {decision.reason}"
+                if decision.verdict == "require_approval"
+                else f"{tool_call.tool_name} needs a person's approval before it runs."
+            )
+            run.paused_reason = assistant_message[:255]
+            session.add(
+                Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=assistant_message,
+                    metadata_json={"notice": "waiting"},
+                )
+            )
             await self.audit_logger.record(
                 session,
                 "approval.requested",
@@ -693,7 +718,13 @@ class AgentRuntime:
                         executed_steps=executed_steps,
                         tool_call=tool_call,
                         session=session,
-                        assistant_message=f"Tool output blocked by the guard: {outcome.reason()}",
+                        assistant_message=user_block_message(
+                            self.guard,
+                            outcome,
+                            Stage.TOOL_OUTPUT,
+                            run_id=run.id,
+                            tool_name=tool_call.tool_name,
+                        ),
                     )
                 # Drop-and-continue: the model learns the content was withheld and carries on.
                 tool_result = withheld_result(outcome)
@@ -834,9 +865,17 @@ class AgentRuntime:
         session.add(approval)
         await session.flush()
         run.status = "waiting_approval"
-        run.paused_reason = reason[:255]
-        assistant_message = f"Content is waiting for human review: {reason}"
-        session.add(Message(conversation_id=conversation.id, role="assistant", content=assistant_message))
+        # Full reason on the approval (for the reviewer); a plain line for the user.
+        assistant_message = "This needs a person's review before I can continue."
+        run.paused_reason = assistant_message
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=assistant_message,
+                metadata_json={"notice": "waiting"},
+            )
+        )
         await self.audit_logger.record(
             session,
             "approval.requested",
@@ -933,7 +972,14 @@ class AgentRuntime:
     ) -> ChatResponse:
         run.status = "denied"
         run.latest_response = message
-        session.add(Message(conversation_id=conversation.id, role="assistant", content=message))
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=message,
+                metadata_json={"notice": "blocked"},
+            )
+        )
         return ChatResponse(
             conversation_id=conversation.id, run_id=run.id, status="denied", assistant_message=message
         )
@@ -1074,7 +1120,15 @@ class AgentRuntime:
         assistant_message: str,
         tool_call: ToolCall | None = None,
     ) -> ChatResponse:
-        session.add(Message(conversation_id=conversation_id, role="assistant", content=assistant_message))
+        # Tagged so the chat shows it as a notice, not as an answer.
+        session.add(
+            Message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=assistant_message,
+                metadata_json={"notice": "blocked"},
+            )
+        )
         run.status = "blocked"
         run.latest_response = assistant_message
         return ChatResponse(

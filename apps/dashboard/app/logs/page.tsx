@@ -145,6 +145,12 @@ export default function LogsPage() {
   const [category, setCategory] = useState<Category>("all");
   const [query, setQuery] = useState("");
 
+  // ?q=<run reference> from a chat notice opens the log filtered to that run.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setQuery(q);
+  }, []);
+
   async function load() {
     setLogs(await apiGet<AuditEvent[]>("/api/logs?limit=300"));
   }

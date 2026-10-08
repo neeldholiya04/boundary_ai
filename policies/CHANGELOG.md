@@ -4,6 +4,36 @@ Every change to `guard.yaml`, a ruleset, or a schema bumps `version` in `guard.y
 and gets an entry here. Eval results are stamped with the config hash, so each entry
 should say which numbers it is expected to move.
 
+## v10
+- Found from real use: in the chats run on this install, `topic` blocked 6 of 44 distinct user messages
+  and Prompt Guard 1, all wrongly ("hi bro how is … doing", "but bro why you blocked", "write a note on
+  why the above chats were blocked"); later "123" (nearest "Do my math homework"). The golden set had 1
+  off-topic test record and no conversation, so neither check was really measured.
+- Eval data: 36 off-topic and 40 conversation records, in **dev only** (the v3 exemplars were written with
+  them in view), and a held-out **test** set of 40 off-topic and 49 pass messages written by someone who
+  saw neither the exemplars nor the earlier records.
+- `topic`: exemplars v3 (conversation joins the allow side; the deny side covers more personal-life
+  ground); the detector gains `min_similarity` and `min_words`. The policy blocks only when the nearest
+  deny exemplar is >= 0.25 alike and > 0.05 nearer than any allow one, and only judges messages of 3+
+  words. Held-out test: off-topic caught 78% (v2: 95%), normal messages flagged 2.8% (v2: 20%). Misses
+  are mostly non-English requests and borderline personal ones (dating openers, parlays).
+- `user_injection_promptguard`: Prompt Guard needs ProtectAI's agreement (new `all_of` detector) unless
+  it is >= 0.999 sure (tuned on dev); a confirmer that errors leaves the decision to Prompt Guard. Each
+  model alone flags conversation the other passes. Extended test: caught 82.5% (alone) -> 75.7%, false
+  alarms 0% either way; golden test false alarms 0.9%. Real DAN variants among the losses; a direct
+  jailbreak comes from the operator, and tools stay behind egress, approval and taint checks. Note: the
+  incident message scored 0.998, just under the decide-alone line.
+- Re-run over every distinct real message on this install (57): only two deliberate investment-advice
+  tests are flagged by anything but `secrets`.
+- What the user sees (agent, not policy): a plain sentence by what the stopping policy detects or where
+  it stopped, with a run reference, shown as a notice in the chat. Detector reasons, policy ids and
+  keywords stay in the logs, and are no longer given to the model in withheld tool results. Approval and
+  review waits show a plain line; the full reason stays on the approval. Policies and dashboard rules
+  can set their own `message`; rules default to a neutral line.
+- Rules: keyword checks can match close spellings (`fuzzy`: keywords of 7+ letters, one letter edit,
+  first two letters exact); topic rules use the v3 allow side, floor and word minimum.
+- `boundary-eval tune` skips `all_of` and `embeddings_topic` policies (no single threshold to sweep).
+
 ## v9
 - A third live leak: `claude_key = sk-ant-` + 15 typed letters passed every stage (the Anthropic rule
   wants the real `sk-ant-api03-` shape), and with an OpenAI key the model wrote the placeholder

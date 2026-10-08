@@ -272,7 +272,12 @@ async def list_conversations(session: AsyncSession = Depends(get_session)) -> li
                 "updated_at": conversation.updated_at,
                 "latest_run_status": latest_run.status if latest_run else "idle",
                 "pending_approval": pending_approval is not None,
-                "pending_approval_reason": pending_approval.reason if pending_approval else None,
+                # The run's user-facing line; the approval's own reason (guard scores) is for reviewers.
+                "pending_approval_reason": (
+                    (latest_run.paused_reason if latest_run else None) or "Waiting for a person's approval."
+                )
+                if pending_approval
+                else None,
                 "latest_message_preview": (latest_message.content[:120] if latest_message else ""),
             }
         )

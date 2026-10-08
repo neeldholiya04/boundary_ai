@@ -1783,3 +1783,47 @@ mark.hit {
   margin-bottom: 2px;
   font-weight: 500;
 }
+
+/* ---- chat notices (blocks, stops, approval waits) ------------------------------------------- */
+
+.msg-notice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-self: start;
+  max-width: min(640px, 100%);
+  padding: 10px 14px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-lg);
+  background: var(--warn-soft);
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.msg-notice svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--warn);
+}
+
+.msg-notice.waiting {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.msg-notice.waiting svg {
+  color: var(--accent-text);
+}
+
+.msg-notice-ref {
+  margin-top: 4px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.msg-notice-ref a {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
