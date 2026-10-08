@@ -302,6 +302,7 @@ returned with the response, not stored on a message.
 - `audit_events`
 - `guard_decisions` (one row per policy per check), `guard_overrides` (mode changes to file policies),
   `guard_rules` (dashboard rules, versioned)
+- `login_failures` (failed sign-ins per client address, for the throttle; pruned after 5 minutes)
 
 ## Edge-Case Stance
 - MCP server failure mid-call: the run ends `failed` with the error; mutating tools are not retried.

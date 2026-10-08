@@ -16,6 +16,16 @@ logged, and every detector's catch rate, false-positive rate, latency and cost a
 | **For admins** | A dashboard (sign in as an admin): Guardrails, Approvals, Logs, Tools, Playground. |
 | **For reviewers** | Reproducible evals: golden and extended detector sets, end-to-end attack scenarios, a load test. |
 
+**Sign in** (local defaults, from `AUTH_USERS`):
+
+| Role | Username | Password | Lands on |
+|---|---|---|---|
+| Admin | `admin` | `admin123` | the dashboard (Guardrails, Approvals, Logs, Tools, Playground) |
+| User | `user` | `user123` | the chat |
+
+These are for local use only. A deployment sets its own accounts and passwords in `AUTH_USERS`
+(see [Sign-in and roles](#sign-in-and-roles) and [DEPLOY.md](docs/DEPLOY.md)).
+
 New here? Read this page, then [PROJECT.md](PROJECT.md). The full documentation map is at the
 [end](#documentation).
 

@@ -349,7 +349,7 @@ a BERT classifier trained on the Jigsaw toxic-comment labels.
 
 - `multi_label: true`: each label gets its own sigmoid, and the score is the max over `toxic`,
   `severe_toxic`, `obscene`, `threat`, `insult` and `identity_hate`.
-- Threshold **0.119**. The yaml comment records 85.7% catch at 1.8% FPR on dev.
+- Threshold **0.119**. On extended (v11): dev 85.7% catch at 1.6% FPR, test 81.9% at 1.0%.
 - Default chunking: 512 tokens, 64 overlap, max 32 chunks. Timeout 5000 ms.
 
 **Why this threshold.** Tuned 0.5 → 0.119 in v3 on extended dev at a ≤ 2% FPR budget. Since v7 it

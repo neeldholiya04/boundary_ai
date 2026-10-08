@@ -18,7 +18,7 @@ Base URL in local development: `http://localhost:8000`.
 | Expiry | `AUTH_TOKEN_HOURS` (default 12). |
 | Accounts | `AUTH_USERS`, a comma-separated list of `name:password:role`, role `user` or `admin`. Default: `admin:admin123:admin,user:user123:user`, for local use only. |
 | Revocation | A token is only accepted while its account still exists in `AUTH_USERS` with the same role; removing an account (and restarting) ends its sessions. |
-| Throttling | 10 failed sign-ins per client address within 5 minutes; further attempts get `429` until the window passes. A successful sign-in clears the count. The count is held in process memory. |
+| Throttling | 10 failed sign-ins per client address within 5 minutes; further attempts get `429` until the window passes. A successful sign-in clears the count. Failures are stored in the `login_failures` table, so the count survives a restart and is shared by every worker. |
 | Switching off | `AUTH_REQUIRED=false` disables the check (tests, local tools). `GET /api/auth/me` then reports `{"username": "local", "role": "admin"}`. |
 
 ### Access levels
@@ -86,8 +86,8 @@ Send a message and run the agent until it answers, is stopped, or pauses for app
 - Body: `message` (required, non-empty), `conversation_id` (optional), `response_schema` (optional; asks
   the final-output guard to validate the answer against a named schema, e.g. `research_note.v1`).
 - Behaviour:
-  - Without `conversation_id`, or with an id that does not exist, a new conversation is created and
-    assigned to the caller.
+  - Without `conversation_id`, a new conversation is created and assigned to the caller. An id that
+    does not exist (or is someone else's) is a `404`; nothing is created.
   - If the conversation has a pending approval, no run starts; the response has
     `status: "waiting_approval"` and the existing `approval_request_id`.
 - Response (`ChatResponse`):
@@ -103,7 +103,7 @@ Send a message and run the agent until it answers, is stopped, or pauses for app
   | `trace_url` | Langfuse trace link. Only returned to admins (and when auth is off); `null` for users. |
   | `guard_notices` | What the guard removed from the user's own message, e.g. a pasted key replaced by `<OPENAI_KEY_1>`. |
 
-- Errors: `404` if `conversation_id` belongs to another user; `422` on an empty message.
+- Errors: `404` if `conversation_id` does not exist or belongs to another user; `422` on an empty message.
 
 ### `GET /api/runs/{run_id}/trace` (admin)
 Trace link for a run.

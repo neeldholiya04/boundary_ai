@@ -311,7 +311,7 @@ AUTH_USERS=admin:<admin password>:admin,user:<user password>:user
 - Use letters and digits only (`openssl rand -hex 16` makes a good one). `:` and `,` separate the
   entries, and `|` or `&` would break the `set_env` helper above.
 - Add more accounts by appending more entries. Failed sign-ins are throttled per client (10 per 5
-  minutes).
+  minutes), counted in the database, so a restart doesn't reset them.
 - `AUTH_SECRET` signs the sign-in tokens, which expire after 12 hours. Changing it signs everyone out.
 
 ### 7.5 Check the file before deploying

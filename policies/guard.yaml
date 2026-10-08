@@ -87,7 +87,7 @@ policies:
       model: protectai/deberta-v3-base-prompt-injection-v2
       revision: 90c9989b1a342275dd0d1a95aad283c04e075671
       positive_labels: [INJECTION]
-      threshold: 0.9963   # dev: 30.6% catch at 1.5% FPR
+      threshold: 0.9963   # v11, extended: dev 30.6% catch at 12.1% FPR; test 35.5% at 14.1%
       chunking: { max_tokens: 512, overlap_tokens: 64, max_chunks: 16 }
     action: block
     mode: shadow
@@ -172,7 +172,7 @@ policies:
       revision: 4d6c22e74ba2fdd26bc4f7238f50766b045a0d94
       positive_labels: [toxic, severe_toxic, obscene, threat, insult, identity_hate]
       multi_label: true
-      threshold: 0.119   # dev: 85.7% catch at 1.8% FPR
+      threshold: 0.119   # v11, extended: dev 85.7% catch at 1.6% FPR; test 81.9% at 1.0%
     action: block
     timeout_ms: 5000
 
