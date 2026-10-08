@@ -25,7 +25,7 @@ export function ModeSwitch({
   onChange: (mode: GuardMode) => void;
 }) {
   return (
-    <div className="mode-switch" role="radiogroup" aria-label={label} aria-busy={busy}>
+    <div className="seg" role="radiogroup" aria-label={label} aria-busy={busy}>
       {MODES.map(({ mode, label: text, hint }) => {
         const selected = value === mode;
         return (
@@ -35,7 +35,7 @@ export function ModeSwitch({
             role="radio"
             aria-checked={selected}
             title={hint}
-            className={`mode-option${selected ? ` selected ${mode}` : ""}`}
+            className={`seg-option ${mode}`}
             disabled={busy}
             onClick={() => {
               if (!selected) onChange(mode);

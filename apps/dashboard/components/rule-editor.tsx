@@ -283,21 +283,21 @@ export function RuleEditor({
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="modal editor" role="dialog" aria-modal="true" aria-labelledby="rule-editor-title">
-        <header className="editor-head">
+      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="rule-editor-title">
+        <header className="modal-head">
           <div>
-            <h3 id="rule-editor-title">{rule ? `Edit rule` : "New rule"}</h3>
-            {rule && <p className="muted mono small">{rule.policy_id}</p>}
+            <h2 id="rule-editor-title">{rule ? `Edit rule` : "New rule"}</h2>
+            {rule && <p className="help mono">{rule.policy_id}</p>}
           </div>
-          <button type="button" className="button secondary small" onClick={onClose}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
             Close
           </button>
         </header>
 
-        <form id="rule-form" className="editor-body" onSubmit={save}>
+        <form id="rule-form" className="modal-body" onSubmit={save}>
           {!rule && (
             <div className="field">
-              <span className="field-label">Start from</span>
+              <span className="label">Start from</span>
               <div className="chips">
                 {PRESETS.map((p) => (
                   <button
@@ -317,8 +317,9 @@ export function RuleEditor({
           )}
 
           <div className="field">
-            <label htmlFor="rule-name">Name</label>
+            <label className="label" htmlFor="rule-name">Name</label>
             <input
+              className="input"
               id="rule-name"
               required
               autoFocus
@@ -327,7 +328,7 @@ export function RuleEditor({
             />
           </div>
 
-          <fieldset className="editor-section">
+          <fieldset className="form-section">
             <legend>Where it checks</legend>
             <div className="chips" role="group" aria-label="Stages">
               {(Object.keys(STAGE_LABELS) as GuardStage[]).map((stage) => (
@@ -344,7 +345,7 @@ export function RuleEditor({
             </div>
             {toolStagesOnly && (
               <div className="field">
-                <span className="field-label">Only these tools</span>
+                <span className="label">Only these tools</span>
                 <div className="chips" role="group" aria-label="Tools">
                   {Array.from(new Set([...tools, ...draft.tools])).sort().map((tool) => (
                     <button
@@ -363,10 +364,10 @@ export function RuleEditor({
                     </button>
                   ))}
                   {tools.length === 0 && draft.tools.length === 0 && (
-                    <span className="muted small">No tools discovered yet.</span>
+                    <span className="help">No tools discovered yet.</span>
                   )}
                 </div>
-                <p className="field-help">
+                <p className="help">
                   None selected: every tool.
                   {draft.tools.some((t) => !tools.includes(t)) &&
                     " Some selected tools aren't connected right now; the rule applies once they are."}
@@ -375,11 +376,12 @@ export function RuleEditor({
             )}
           </fieldset>
 
-          <fieldset className="editor-section">
+          <fieldset className="form-section">
             <legend>What it looks for</legend>
             <div className="field">
-              <label htmlFor="rule-check">Check</label>
+              <label className="label" htmlFor="rule-check">Check</label>
               <select
+                className="select"
                 id="rule-check"
                 value={draft.checkType}
                 onChange={(e) => {
@@ -399,21 +401,22 @@ export function RuleEditor({
                   </option>
                 ))}
               </select>
-              {checkInfo && <p className="field-help">{checkInfo.hint}</p>}
+              {checkInfo && <p className="help">{checkInfo.hint}</p>}
             </div>
 
             {linesLabel && (
               <div className="field">
-                <label htmlFor="rule-lines">{linesLabel}</label>
-                <textarea id="rule-lines" required value={draft.lines} onChange={(e) => update("lines", e.target.value)} />
+                <label className="label" htmlFor="rule-lines">{linesLabel}</label>
+                <textarea className="textarea mono" id="rule-lines" required value={draft.lines} onChange={(e) => update("lines", e.target.value)} />
               </div>
             )}
 
             {draft.checkType === "llm_judge" && (
               <>
                 <div className="field">
-                  <label htmlFor="rule-policy">Policy, in plain words</label>
+                  <label className="label" htmlFor="rule-policy">Policy, in plain words</label>
                   <textarea
+                    className="textarea"
                     id="rule-policy"
                     required
                     value={draft.policy}
@@ -422,26 +425,27 @@ export function RuleEditor({
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="rule-model">Judge model</label>
+                  <label className="label" htmlFor="rule-model">Judge model</label>
                   <input
                     id="rule-model"
-                    className="mono"
+                    className="input mono"
                     value={draft.model}
                     onChange={(e) => update("model", e.target.value)}
                     placeholder={types?.judge_model ?? "default"}
                   />
-                  <p className="field-help">Leave empty to use the default model.</p>
+                  <p className="help">Leave empty to use the default model.</p>
                 </div>
               </>
             )}
           </fieldset>
 
-          <fieldset className="editor-section">
+          <fieldset className="form-section">
             <legend>What happens</legend>
-            <div className="editor-pair">
+            <div className="form-grid">
               <div className="field">
-                <label htmlFor="rule-action">When it matches</label>
+                <label className="label" htmlFor="rule-action">When it matches</label>
                 <select
+                  className="select"
                   id="rule-action"
                   value={draft.action}
                   onChange={(e) => update("action", e.target.value as RuleAction)}
@@ -452,19 +456,19 @@ export function RuleEditor({
                     </option>
                   ))}
                 </select>
-                {!canRedact && <p className="field-help">Redact needs a keywords or pattern check.</p>}
+                {!canRedact && <p className="help">Redact needs a keywords or pattern check.</p>}
               </div>
               {draft.action === "redact" && (
                 <div className="field">
-                  <label htmlFor="rule-label">Placeholder label</label>
+                  <label className="label" htmlFor="rule-label">Placeholder label</label>
                   <input
                     id="rule-label"
-                    className="mono"
+                    className="input mono"
                     value={draft.label}
                     onChange={(e) => update("label", e.target.value)}
                     placeholder="REDACTED"
                   />
-                  <p className="field-help">Matches become &lt;{(draft.label || "REDACTED").toUpperCase()}_1&gt;.</p>
+                  <p className="help">Matches become &lt;{(draft.label || "REDACTED").toUpperCase()}_1&gt;.</p>
                 </div>
               )}
             </div>
@@ -480,17 +484,17 @@ export function RuleEditor({
             )}
           </fieldset>
 
-          <fieldset className="editor-section">
+          <fieldset className="form-section">
             <legend>Examples</legend>
-            <p className="field-help">Test runs the rule on these and on the eval set&apos;s clean records.</p>
-            <div className="editor-pair">
+            <p className="help">Test runs the rule on these and on the eval set&apos;s clean records.</p>
+            <div className="form-grid">
               <div className="field">
-                <label htmlFor="rule-fire">Should match (one per line)</label>
-                <textarea id="rule-fire" value={draft.shouldFire} onChange={(e) => update("shouldFire", e.target.value)} />
+                <label className="label" htmlFor="rule-fire">Should match (one per line)</label>
+                <textarea className="textarea" id="rule-fire" value={draft.shouldFire} onChange={(e) => update("shouldFire", e.target.value)} />
               </div>
               <div className="field">
-                <label htmlFor="rule-pass">Should not match (one per line)</label>
-                <textarea id="rule-pass" value={draft.shouldPass} onChange={(e) => update("shouldPass", e.target.value)} />
+                <label className="label" htmlFor="rule-pass">Should not match (one per line)</label>
+                <textarea className="textarea" id="rule-pass" value={draft.shouldPass} onChange={(e) => update("shouldPass", e.target.value)} />
               </div>
             </div>
           </fieldset>
@@ -504,13 +508,13 @@ export function RuleEditor({
           {report && <DryRunReport report={report} />}
         </form>
 
-        <footer className="editor-foot">
-          <span className="muted small">{rule ? `Keeps its mode (${rule.spec.mode})` : "New rules start in shadow"}</span>
-          <div className="row">
-            <button type="button" className="button secondary" onClick={runTest} disabled={busy !== null}>
+        <footer className="modal-foot">
+          <span className="help">{rule ? `Keeps its mode (${rule.spec.mode})` : "New rules start in shadow"}</span>
+          <div className="actions">
+            <button type="button" className="btn" onClick={runTest} disabled={busy !== null}>
               {busy === "test" ? "Testing…" : "Test"}
             </button>
-            <button type="submit" form="rule-form" className="button" disabled={busy !== null}>
+            <button type="submit" form="rule-form" className="btn btn-primary" disabled={busy !== null}>
               {busy === "save" ? "Saving…" : rule ? "Save" : "Create"}
             </button>
           </div>
@@ -522,7 +526,7 @@ export function RuleEditor({
 
 function DryRunReport({ report }: { report: RuleDryRun }) {
   return (
-    <section className="dry-run" aria-live="polite">
+    <section className="dry-run surface surface-pad" aria-live="polite">
       <strong className={report.passed ? "text-success" : "text-danger"}>
         {report.passed ? "All examples behave as expected" : "Some examples don't match what you expected"}
       </strong>
@@ -542,7 +546,7 @@ function DryRunReport({ report }: { report: RuleDryRun }) {
         ))}
       </ul>
       {report.benign && (
-        <p className="muted small">
+        <p className="help">
           On clean eval records at these stages it fired {report.benign.fired} of {report.benign.checked} times (
           {(report.benign.rate * 100).toFixed(1)}%)
           {report.benign.samples.length > 0 ? `, e.g. ${report.benign.samples.map((s) => s.record_id).join(", ")}` : ""}.
