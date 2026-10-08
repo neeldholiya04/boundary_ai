@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime
 from typing import Any
@@ -53,16 +54,18 @@ class MCPManager:
         remote_transport: str,
         remote_name: str,
     ) -> None:
-        await self._ensure_server(
-            session,
-            name="local-sandbox",
-            transport="stdio",
-            config={
-                "command": python_executable,
-                "args": ["-m", "boundary_mcp.server"],
-                "cwd": str(self.repo_root),
-            },
-        )
+        sandbox_config: dict[str, Any] = {
+            "command": python_executable,
+            "args": ["-m", "boundary_mcp.server"],
+            "cwd": str(self.repo_root),
+        }
+        # The stdio client hands the child only a few variables (HOME, PATH, ...), so pass the
+        # sandbox root on explicitly. Without it the image's server falls back to a folder inside
+        # the read-only code tree and every write fails instead of landing in the mounted volume.
+        sandbox_root = os.getenv("BOUNDARY_SANDBOX_ROOT")
+        if sandbox_root:
+            sandbox_config["env"] = {"BOUNDARY_SANDBOX_ROOT": sandbox_root}
+        await self._ensure_server(session, name="local-sandbox", transport="stdio", config=sandbox_config)
 
         if exa_enabled:
             exa_config: dict[str, Any] = {"url": exa_url}
