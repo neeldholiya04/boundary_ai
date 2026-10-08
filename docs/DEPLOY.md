@@ -319,11 +319,12 @@ AUTH_USERS=admin:<admin password>:admin,user:<user password>:user
 ```bash
 server$ ls -l .env
 # -rw------- (only you can read it)
-server$ docker compose --env-file .env -f infra/docker-compose.deploy.yml config -q && echo "config OK"
+server$ RELEASE=check docker compose --env-file .env -f infra/docker-compose.deploy.yml config -q && echo "config OK"
 server$ grep -E '^PUBLIC_HOST=' .env
 server$ grep -oE '^AUTH_USERS=|:(user|admin)(,|$)' .env | tr -d '\n'; echo
 ```
 
+- `RELEASE=check` stands in for the release tag, which `infra/deploy.sh` sets and records in `.env`.
 - The `config -q` check prints only errors (never the values). Seeing `config OK` means nothing
   required is missing. Otherwise it names the setting, e.g. `set AUTH_SECRET in .env`.
 - The first `grep` shows the hostname; the second shows the account roles without the passwords
@@ -399,7 +400,7 @@ laptop$ infra/smoke-test.sh https://boundary.3-91-20-7.sslip.io
 ```
 
 It asks for the admin account's password (the `admin` entry in `AUTH_USERS`; set `ADMIN_USER` if it
-has another name) and checks 12 access rules:
+has another name) and checks 11 access rules:
 - The sign-in page loads; the chat, admin and playground APIs refuse requests without a sign-in.
 - `/metrics` returns 404.
 - A wrong password is refused; the admin can sign in and reach the admin and playground APIs.
@@ -470,21 +471,32 @@ including HTTPS.
 ## 10. Monitoring
 
 **Traces:** put `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `LANGFUSE_HOST` in `.env`, then run
-`up -d` again (step 8). Chat responses link to their trace.
+`up -d` again (step 8). Every request then shows up in your Langfuse project, and Playground attack
+runs link straight to their trace. To share one trace with someone without a Langfuse account, open
+it in Langfuse and switch it to public with the share toggle.
 
-**Metrics:** run Prometheus and Grafana on the server. They're only reachable through an SSH tunnel:
-
-```bash
-docker compose --env-file .env -f infra/docker-compose.deploy.yml --profile observability up -d
-```
-
-Then, on your laptop:
+**Metrics:** start Prometheus and Grafana on the server. `infra/deploy.sh` leaves them running but
+doesn't update them, so run this again after a deploy that changes their settings:
 
 ```bash
-ssh -i ~/.ssh/boundary.pem -N -L 3001:127.0.0.1:3001 ubuntu@3.91.20.7
+server$ cd ~/boundary_ai
+server$ docker compose --env-file .env -f infra/docker-compose.deploy.yml --profile observability up -d
 ```
 
-Open http://localhost:3001 for the *boundary-ai: guard & agent* dashboard.
+Both are then public and read-only on the same hostname:
+- **Grafana:** https://boundary.3-91-20-7.sslip.io/grafana/ opens the *boundary-ai: guard & agent*
+  dashboard. Visitors view it without signing in. There is no login form, so the dashboard can't be
+  edited from the web (change it in `infra/observability/grafana/dashboards/` and redeploy).
+- **Prometheus:** https://boundary.3-91-20-7.sslip.io/prometheus/ for ad-hoc queries, e.g.
+  `sum by (action) (rate(guard_checks_total[5m]))`. Its admin and shutdown APIs are off, and queries
+  are capped at 20 s and 4 at a time.
+
+The metrics hold counts, latencies, model names and policy names, never prompts, accounts or keys.
+While the profile is stopped, both paths return 502. To make them private again, stop the profile:
+
+```bash
+server$ docker compose --env-file .env -f infra/docker-compose.deploy.yml --profile observability stop prometheus grafana
+```
 
 **Health from AWS:** *EC2 → Instances → boundary → Monitoring* shows CPU. If memory or the disk get
 tight, `docker stats` and `df -h` on the server tell you which.
@@ -503,6 +515,11 @@ git checkout --detach <older-sha> && infra/deploy.sh                       # rol
 Every release keeps its images, tagged with the commit (`docker image ls boundary-agent`), so a
 rollback to a recent commit starts in seconds without rebuilding.
 
+Always deploy (and roll back) with `infra/deploy.sh`. It records the release as `RELEASE=` in `.env`,
+and every other `docker compose ... up` (like starting the observability profile in step 10) then
+reuses exactly those images. The compose file has no default tag on purpose: once, a plain `up`
+fell back to an old image and replaced the live agent with a build from before sign-in.
+
 A guard policy can also be rolled back live, without a deploy: switch a policy's mode on the admin
 *Guardrails* page.
 
@@ -519,7 +536,7 @@ the old release keeps running):
    - add `AUTH_SECRET=` the output of `openssl rand -hex 32`
    - delete the `ADMIN_HOST`, `ADMIN_USER` and `ADMIN_PASSWORD_HASH` lines
    - keep `PUBLIC_HOST` as it is: it's now the only URL
-2. Check it: `docker compose --env-file .env -f infra/docker-compose.deploy.yml config -q && echo "config OK"`.
+2. Check it: `RELEASE=check docker compose --env-file .env -f infra/docker-compose.deploy.yml config -q && echo "config OK"`.
 3. On GitHub, in the `production` environment (step 19): set the `ADMIN_PASSWORD` secret to the new
    admin password, and delete the `ADMIN_URL` variable.
 4. Deploy (*Actions → deploy → Run workflow*, or `infra/deploy.sh` on the server).

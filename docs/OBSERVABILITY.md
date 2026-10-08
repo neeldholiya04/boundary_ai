@@ -103,11 +103,15 @@ A **Playground** page in the dashboard, backed by three endpoints:
 
 The deployment ([DEPLOY.md](DEPLOY.md)) closes the items Phase 10 left open:
 
-- **Nothing is public without a sign-in.** Both hosts serve the app; the agent checks every API call
-  against the account's role (user: chat; admin: dashboard and playground). See ARCHITECTURE.md,
-  "Sign-in and roles".
+- **The app needs a sign-in.** One hostname serves it; the agent checks every API call against the
+  account's role (user: chat; admin: dashboard and playground). See ARCHITECTURE.md, "Sign-in and
+  roles".
 - **`/metrics` is never served through the proxy.** Prometheus scrapes the agent on the internal
-  network, and Grafana is reachable only through an SSH tunnel.
+  network.
+- **Grafana and Prometheus are public and read-only** at `/grafana/` and `/prometheus/` while the
+  observability profile runs: anonymous Grafana viewers with no login form, and Prometheus with its
+  admin APIs off and query time and concurrency capped. The metrics carry no prompts, accounts or
+  keys (counts, latencies, model and policy names).
 - **Real client IPs:** the agent trusts the forwarded address from Caddy (the only thing that can
   reach it), so the rate limits apply per real visitor.
 - Grafana Cloud remote-write remains an option for alerting from outside the server.

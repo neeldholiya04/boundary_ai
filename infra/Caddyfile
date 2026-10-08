@@ -8,6 +8,8 @@
 # signed-in account with the right role, so the proxy has no password of its own any more (it used to
 # put basic auth on a second, admin-only host and serve only a public playground on this one).
 # /metrics is never served through the proxy: Prometheus scrapes the agent on the internal network.
+# Grafana (/grafana/) and Prometheus (/prometheus/) are public and read-only, for showing the metrics;
+# they only answer while the observability profile runs (otherwise those paths return 502).
 
 {
 	# "email you@example.org" when ACME_EMAIL is set in .env, otherwise nothing (no contact address).
@@ -38,6 +40,19 @@
 		reverse_proxy agent:8000 {
 			flush_interval -1 # live updates (server-sent events) stream straight through
 		}
+	}
+
+	# Grafana serves itself from /grafana/ (GF_SERVER_SERVE_FROM_SUB_PATH), so the path is kept.
+	redir /grafana /grafana/
+	handle /grafana/* {
+		reverse_proxy grafana:3000
+	}
+
+	# Prometheus serves from / internally (Grafana's datasource uses http://prometheus:9090) and
+	# links to /prometheus/ outside (--web.external-url), so the prefix is stripped here.
+	redir /prometheus /prometheus/
+	handle_path /prometheus/* {
+		reverse_proxy prometheus:9090
 	}
 
 	handle {

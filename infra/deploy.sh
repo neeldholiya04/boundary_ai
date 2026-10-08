@@ -14,6 +14,15 @@ export RELEASE
 RELEASE=$(git rev-parse --short HEAD)
 compose=(docker compose --env-file .env -f infra/docker-compose.deploy.yml)
 
+# Record the release in .env too, so a later `docker compose ... up` by hand (e.g. starting the
+# observability profile) recreates containers from these images. Without it, compose used to fall
+# back to an old `:dev` image and could silently swap the live agent for a stale build.
+if grep -q '^RELEASE=' .env; then
+  sed -i "s|^RELEASE=.*|RELEASE=$RELEASE|" .env
+else
+  printf '\nRELEASE=%s\n' "$RELEASE" >> .env
+fi
+
 echo "deploying $RELEASE ($(git log -1 --format=%s))"
 "${compose[@]}" up -d --build --remove-orphans
 

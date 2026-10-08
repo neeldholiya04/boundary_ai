@@ -1,8 +1,9 @@
-# Production stack (one server; see docs/DEPLOY.md). Settings come from the root .env:
-#   RELEASE=$(git rev-parse --short HEAD) docker compose --env-file .env -f infra/docker-compose.deploy.yml up -d --build
-# Images are tagged with RELEASE, so a rollback is `RELEASE=<previous> ... up -d` (no rebuild).
-# Opt-in Prometheus + Grafana: add `--profile observability` (Grafana on the server's 127.0.0.1:3001,
-# reached through an SSH tunnel; never exposed publicly).
+# Production stack (one server; see docs/DEPLOY.md). Settings come from the root .env. Deploy with
+# infra/deploy.sh: it tags the images with the commit and records it as RELEASE in .env, so any
+# later `docker compose --env-file .env -f infra/docker-compose.deploy.yml ...` uses the live release.
+# There is deliberately no default tag: an old default image once replaced the live agent.
+# Opt-in Prometheus + Grafana: add `--profile observability` (public read-only at /grafana/ and
+# /prometheus/, see the Caddyfile).
 name: boundary-deploy
 
 x-restart: &restart
@@ -38,7 +39,7 @@ services:
 
   agent:
     <<: *restart
-    image: boundary-agent:${RELEASE:-dev}
+    image: boundary-agent:${RELEASE:?no RELEASE in .env, run infra/deploy.sh first}
     build:
       context: ..
       dockerfile: apps/agent/Dockerfile
@@ -89,7 +90,7 @@ services:
 
   dashboard:
     <<: *restart
-    image: boundary-dashboard:${RELEASE:-dev}
+    image: boundary-dashboard:${RELEASE:?no RELEASE in .env, run infra/deploy.sh first}
     build:
       context: ..
       dockerfile: apps/dashboard/Dockerfile
@@ -120,9 +121,16 @@ services:
     <<: *restart
     image: prom/prometheus:v3.1.0
     profiles: [observability]
+    # Public read-only at https://PUBLIC_HOST/prometheus/ (Caddy strips the prefix). The admin and
+    # lifecycle APIs stay off (the default), and the query limits keep public queries cheap.
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=15d
+      - --web.external-url=https://${PUBLIC_HOST:?set PUBLIC_HOST in .env}/prometheus/
+      - --web.route-prefix=/
+      - --query.timeout=20s
+      - --query.max-concurrency=4
+      - --query.max-samples=5000000
     volumes:
       - ./observability/prometheus.deploy.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -134,8 +142,15 @@ services:
     depends_on:
       - prometheus
     environment:
-      GF_AUTH_ANONYMOUS_ENABLED: "true" # bound to the server's localhost only (SSH tunnel)
+      # Public read-only at https://PUBLIC_HOST/grafana/: anonymous viewers only, and no login form
+      # or basic auth, so there's no admin sign-in to guess at (dashboards come from provisioning).
+      GF_SERVER_ROOT_URL: https://${PUBLIC_HOST:?set PUBLIC_HOST in .env}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/boundary-guard.json
       GF_ANALYTICS_REPORTING_ENABLED: "false"
