@@ -2,7 +2,7 @@
 # The dashboard (Next.js). Built from the repo root:
 #   docker build -f apps/dashboard/Dockerfile -t boundary-dashboard .
 # NEXT_PUBLIC_API_BASE_URL defaults to "" so the browser calls the API on the same host (/api/...):
-# behind Caddy, both hosts route /api to the agent.
+# behind Caddy, /api routes to the agent.
 
 FROM node:22-alpine AS build
 WORKDIR /app

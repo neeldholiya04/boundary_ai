@@ -103,4 +103,4 @@ jobs:
         if: steps.configured.outputs.ok == 'true'
         env:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-        run: infra/smoke-test.sh "${{ vars.PUBLIC_URL }}" "${{ vars.ADMIN_URL }}"
+        run: infra/smoke-test.sh "${{ vars.PUBLIC_URL }}"

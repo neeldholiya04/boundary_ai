@@ -1,12 +1,12 @@
 # Reverse proxy for the deployment (infra/docker-compose.deploy.yml). Caddy gets and renews the HTTPS
-# certificates for both hosts itself (Let's Encrypt); with sslip.io names no domain is needed.
+# certificate itself (Let's Encrypt); with an sslip.io name no domain is needed.
 #
-#   PUBLIC_HOST, ADMIN_HOST  both serve the app: sign-in page, the chat for user accounts, the dashboard
-#                            (guardrails, approvals, logs, tools, playground) for admin accounts
+#   PUBLIC_HOST  the one hostname: sign-in page, the chat for user accounts, the dashboard
+#                (guardrails, approvals, logs, tools, playground) for admin accounts
 #
 # Access is enforced by the agent (apps/agent/src/boundary_agent/auth.py): every /api path needs a
 # signed-in account with the right role, so the proxy has no password of its own any more (it used to
-# put basic auth on the admin host and serve only a public playground on the other).
+# put basic auth on a second, admin-only host and serve only a public playground on this one).
 # /metrics is never served through the proxy: Prometheus scrapes the agent on the internal network.
 
 {
@@ -25,7 +25,7 @@
 	}
 }
 
-{$PUBLIC_HOST}, {$ADMIN_HOST} {
+{$PUBLIC_HOST} {
 	import hardening
 
 	@metrics path /metrics

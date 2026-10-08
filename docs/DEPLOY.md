@@ -13,16 +13,16 @@ Plan about an hour the first time; most of that is waiting for downloads.
 ```
                      ┌──────────────────────── EC2 t4g.large (Ubuntu 24.04, ARM) ───────────────────────┐
  https://boundary.…  │  Caddy ──► dashboard (sign in; chat for users,     agent ◄── Prometheus (opt-in) │
- https://admin.…     │    │       dashboard for admins)                     │                          │
+                     │    │       dashboard for admins)                     │                          │
                      │    └─────► agent /api (checks the sign-in and role)  ├── Postgres, Redis        │
                      │                                                      └── model cache (volume)   │
                      └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Hostnames:** two free `sslip.io` names that resolve to the server's IP, so no domain to buy. For
-IP `3.91.20.7`: `boundary.3-91-20-7.sslip.io` and `admin.3-91-20-7.sslip.io`. Both serve the same
-app: everyone signs in, user accounts get the chat, admin accounts get the dashboard (the agent
-enforces the roles on every API call). Caddy gets real HTTPS certificates for both automatically.
+**Hostname:** a free `sslip.io` name that resolves to the server's IP, so no domain to buy. For IP
+`3.91.20.7`: `boundary.3-91-20-7.sslip.io`. Everyone signs in there: user accounts get the chat,
+admin accounts get the dashboard (the agent enforces the roles on every API call). Caddy gets a real
+HTTPS certificate for it automatically.
 
 # Part 1: Provision and go live
 
@@ -90,7 +90,11 @@ If your home IP changes later, edit the SSH rule back to *My IP*.
 *EC2 → Instances → Launch instances*:
 - **Name:** `boundary`
 - **AMI:** *Ubuntu Server 24.04 LTS*, architecture **64-bit (Arm)**
-- **Instance type:** **t4g.large**
+- **Instance type:** **t4g.large**. ARM (Graviton) is ~20% cheaper than the same-size x86
+  (t3.large) and is what these images were built and rehearsed on. `t` instances are *burstable*:
+  full CPU in bursts and ~30% sustained, which is plenty for demos. For heavier sustained load (e.g.
+  publishable load-test numbers), **m7g.large** (ARM, Graviton3, 8 GB, ~$0.082/h) is the
+  non-burstable upgrade, with nothing else changing.
 - **Key pair:** `boundary`
 - **Network:** existing security group `boundary-web`; auto-assign public IP on
 - **Storage:** **30 GiB gp3** (images and models need ~15 GB)
@@ -100,125 +104,366 @@ Then *Launch*.
 
 ## 5. A fixed IP (Elastic IP)
 
-Your hostnames contain the IP, so it must not change when you stop and start the server.
+Your hostname contains the IP, so it must not change when you stop and start the server.
 
 1. *EC2 → Elastic IPs → Allocate Elastic IP address → Allocate*.
 2. *Actions → Associate* → choose instance `boundary`.
-3. Note the address, e.g. `3.91.20.7`. Your hostnames are now:
-   - `boundary.3-91-20-7.sslip.io`
-   - `admin.3-91-20-7.sslip.io`
+3. Note the address, e.g. `3.91.20.7`. Your hostname is now `boundary.3-91-20-7.sslip.io`.
 
 ## 6. Prepare the server
 
-```bash
-ssh -i ~/.ssh/boundary.pem ubuntu@3.91.20.7
-```
+Your laptop's terminal is **laptop$**; the server's is **server$**. Use your own Elastic IP wherever
+you see `3.91.20.7`.
 
-On the server:
-
-```bash
-# Updates, Docker (official repo) and git
-sudo apt-get update && sudo apt-get -y upgrade
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker ubuntu
-# A 4 GB swap file as a safety net for memory spikes (the models stay in RAM; this only helps peaks)
-sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-exit   # log out and back in so the docker group applies
-```
+### 6.1 Connect
 
 ```bash
-ssh -i ~/.ssh/boundary.pem ubuntu@3.91.20.7
-docker run --rm hello-world   # Docker works without sudo
-git clone https://github.com/neeldholiya04/boundary_ai.git
-cd boundary_ai
+laptop$ ssh -i ~/.ssh/boundary.pem ubuntu@3.91.20.7
 ```
 
-The clone above assumes the repo is public. If it's private, create a read-only deploy key
-(`ssh-keygen -t ed25519` on the server, then add the `.pub` under *GitHub → repo → Settings →
-Deploy keys*) and clone with `git@github.com:...`.
+- The first time, SSH says *"The authenticity of host … can't be established. ED25519 key
+  fingerprint is SHA256:…"*. Type `yes`. To be thorough first, compare the fingerprint with the one
+  in *EC2 → Instances → boundary → Actions → Monitor and troubleshoot → Get system log* (near the end,
+  under `BEGIN SSH HOST KEY FINGERPRINTS`).
+- The user is always **`ubuntu`** on Ubuntu AMIs.
+
+| If you see | Do this |
+|---|---|
+| `Permission denied (publickey)` | wrong user (must be `ubuntu`), wrong key file, or the key isn't `chmod 400` |
+| `Connection timed out` | the security group's SSH rule doesn't match your current IP (*Edit inbound rules → My IP*), or the instance is still booting (wait a minute) |
+| `UNPROTECTED PRIVATE KEY FILE` | `chmod 400 ~/.ssh/boundary.pem` |
+
+**Optional shortcut.** Add this to `~/.ssh/config` on your laptop, and from then on `ssh boundary` is
+enough:
+
+```
+Host boundary
+    HostName 3.91.20.7
+    User ubuntu
+    IdentityFile ~/.ssh/boundary.pem
+```
+
+### 6.2 Check you got the right machine
+
+```bash
+server$ uname -m                  # aarch64        (ARM)
+server$ nproc && free -h          # 2 CPUs; Mem total about 7.6Gi
+server$ df -h /                   # Size about 29G
+server$ lsb_release -ds           # Ubuntu 24.04.x LTS
+```
+
+If `uname -m` says `x86_64`, you launched an x86 instance. That works, but it isn't what we tested.
+If the disk shows ~8G, the storage setting in step 4 was missed. Fix it with *EC2 → Volumes → Modify
+→ 30*, then `sudo growpart /dev/nvme0n1 1 && sudo resize2fs /dev/nvme0n1p1`.
+
+### 6.3 Update the operating system
+
+```bash
+server$ sudo apt-get update && sudo apt-get -y upgrade
+```
+
+- If a purple *"Daemons using outdated libraries"* screen appears, press **Enter** to accept.
+- If `/var/run/reboot-required` now exists (`ls /var/run/reboot-required`), reboot and reconnect
+  after about a minute:
+
+```bash
+server$ sudo reboot
+laptop$ ssh -i ~/.ssh/boundary.pem ubuntu@3.91.20.7
+```
+
+Ubuntu installs security updates automatically from now on (`systemctl is-enabled
+unattended-upgrades` should print `enabled`).
+
+### 6.4 Install Docker
+
+```bash
+server$ curl -fsSL https://get.docker.com -o get-docker.sh
+server$ sudo sh get-docker.sh                 # Docker's official installer (~1 minute)
+server$ sudo usermod -aG docker ubuntu        # let your user run docker without sudo
+server$ exit
+laptop$ ssh -i ~/.ssh/boundary.pem ubuntu@3.91.20.7   # log back in so the group applies
+server$ docker run --rm hello-world           # prints "Hello from Docker!"
+server$ docker compose version                # Docker Compose version v2.x
+server$ systemctl is-enabled docker           # enabled: Docker (and the app) start on boot
+```
+
+Being in the `docker` group is equivalent to root on this machine. Keep it to your own user.
+
+### 6.5 Add swap (a safety net, not extra memory)
+
+```bash
+server$ sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
+server$ sudo mkswap /swapfile && sudo swapon /swapfile
+server$ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+server$ echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-swappiness.conf && sudo sysctl --system >/dev/null
+server$ free -h                               # Swap: 4.0Gi
+```
+
+`swappiness=10` tells Linux to keep the guard's models in RAM and only use swap under real
+pressure. Models being paged out is exactly what made the laptop slow (see [RESULTS.md](RESULTS.md)).
+
+### 6.6 Get the code
+
+```bash
+server$ git clone https://github.com/neeldholiya04/boundary_ai.git ~/boundary_ai
+server$ cd ~/boundary_ai && git log -1 --oneline       # the same latest commit GitHub shows
+```
+
+Keep it at **`~/boundary_ai`**: the deploy pipeline (Part 3) looks for it there.
+
+**If the repo is private**, give the server a read-only deploy key and clone over SSH instead:
+
+```bash
+server$ ssh-keygen -t ed25519 -N "" -f ~/.ssh/github_deploy -C boundary-server
+server$ cat ~/.ssh/github_deploy.pub
+```
+
+1. Paste the `.pub` output into *GitHub → repo → Settings → Deploy keys → Add deploy key* and leave
+   "write access" unticked.
+2. Clone with that key:
+
+```bash
+server$ GIT_SSH_COMMAND="ssh -i ~/.ssh/github_deploy" git clone git@github.com:neeldholiya04/boundary_ai.git ~/boundary_ai
+server$ cd ~/boundary_ai && git config core.sshCommand "ssh -i ~/.ssh/github_deploy"
+```
 
 ## 7. Configure (`.env` on the server)
 
+### 7.1 Get the keys ready (in your laptop's browser)
+
+**OpenAI.** Use a separate project, so the demo's spending is capped and can be revoked on its own.
+1. *platform.openai.com → Settings → Projects → Create project* `boundary-demo`.
+2. In that project, under *Limits*, set a monthly budget (e.g. $10).
+3. *API keys → Create new secret key* (project `boundary-demo`). Copy it now: it's shown only once.
+
+**Hugging Face** (required):
+1. Open `huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M` while logged in. It should say you've
+   been granted access. If not, request it and wait for the approval email.
+2. *Settings → Access Tokens → Create new token*, type **Read**, name `boundary-server`. Copy it.
+
+**Optional:** an Exa API key (`dashboard.exa.ai`) and Langfuse keys (*project → Settings → API
+keys*). You can add them later and run `infra/deploy.sh` again.
+
+### 7.2 Create the file
+
 ```bash
-cp .env.example .env
-chmod 600 .env
-nano .env
+server$ cd ~/boundary_ai
+server$ cp .env.example .env && chmod 600 .env
+server$ openssl rand -hex 24          # copy this: it's your Postgres password
+server$ nano .env
 ```
 
-Set these and leave the rest as they are.
+In `nano`:
+- Move with the arrow keys and paste with your terminal's paste (⌘V on a Mac).
+- Search with **Ctrl-W**.
+- Save with **Ctrl-O** then **Enter**, and exit with **Ctrl-X**.
 
-| Setting | Value |
+### 7.3 Set these lines
+
+Change only these. Leave every other line as it is: the deploy stack sets its own database URL, CORS
+origin and so on, and ignores the local-development lines.
+
+| Line | Set to |
 |---|---|
-| `POSTGRES_PASSWORD` | a long random string: `openssl rand -hex 24` |
-| `OPENAI_API_KEY` | **a separate key just for this server**, from an OpenAI project with a monthly spend limit |
-| `HF_TOKEN` | a Hugging Face *read* token, from the account that accepted the Llama Prompt Guard 2 licence (required) |
-| `LLM_DAILY_BUDGET_USD` | e.g. `2`: playground live runs can't spend more than this per day |
-| `PUBLIC_HOST` | `boundary.3-91-20-7.sslip.io` |
-| `ADMIN_HOST` | `admin.3-91-20-7.sslip.io` |
-| `AUTH_USERS` | the accounts, e.g. `admin:<long password>:admin,user:<password>:user` |
-| `AUTH_SECRET` | `openssl rand -hex 32` (signs sign-in tokens) |
-| `ACME_EMAIL` | optional: your email, for certificate notices |
-| `EXA_API_KEY`, `LANGFUSE_*` | optional |
-| `GRAFANA_ADMIN_PASSWORD` | only if you'll use the observability profile (step 10) |
+| `POSTGRES_PASSWORD=` | the `openssl rand -hex 24` output from 7.2 |
+| `OPENAI_API_KEY=` | the OpenAI key from 7.1 |
+| `HF_TOKEN=` | the Hugging Face token from 7.1 |
+| `LLM_DAILY_BUDGET_USD=` | `2` (the most real LLM spend per day; playground built-ins are free replays) |
+| `GRAFANA_ADMIN_PASSWORD=` | another `openssl rand -hex 16` (replace the template's default even if you won't use Grafana) |
+| `PUBLIC_HOST=` | `boundary.3-91-20-7.sslip.io` (your IP, dots replaced with dashes) |
+| `AUTH_USERS=` | the sign-in accounts, from 7.4 |
+| `AUTH_SECRET=` | `openssl rand -hex 32` (signs sign-in tokens) |
+| `ACME_EMAIL=` | your email (optional; Let's Encrypt only uses it for certificate expiry notices) |
+| `EXA_API_KEY=`, `LANGFUSE_*` | optional |
 
-Pick real passwords for `AUTH_USERS`: they guard the whole app (the defaults admin123/user123 are
-for local use only). Avoid `,` and `:` inside a password; they separate the entries. Failed sign-ins
-are throttled per client (10 per 5 minutes).
+**Faster alternative to editing by hand:** fill the same lines with commands. Secrets are typed at
+hidden prompts, so they don't appear on screen or in shell history. This does steps 7.3 and 7.4 in
+one go:
 
-Secrets live only in this `.env` (mode 600). They are never baked into an image; `.dockerignore`
-excludes every `.env`.
+```bash
+server$ cd ~/boundary_ai && cp .env.example .env && chmod 600 .env
+server$ EIP=3.91.20.7                                  # <- your Elastic IP
+server$ set_env() { if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi; }
+server$ set_env POSTGRES_PASSWORD "$(openssl rand -hex 24)"
+server$ set_env GRAFANA_ADMIN_PASSWORD "$(openssl rand -hex 16)"
+server$ set_env AUTH_SECRET "$(openssl rand -hex 32)"
+server$ set_env LLM_DAILY_BUDGET_USD 2
+server$ set_env PUBLIC_HOST "boundary.${EIP//./-}.sslip.io"
+server$ read -rs -p "OpenAI key: " K; echo; set_env OPENAI_API_KEY "$K"; unset K
+server$ read -rs -p "Hugging Face token: " K; echo; set_env HF_TOKEN "$K"; unset K
+server$ read -rs -p "Admin password: " A; echo; read -rs -p "User password: " U; echo
+server$ set_env AUTH_USERS "admin:$A:admin,user:$U:user"; unset A U
+server$ set_env ACME_EMAIL "you@example.org"           # optional
+```
+
+### 7.4 The sign-in accounts
+
+`AUTH_USERS` lists every account as `name:password:role`, comma-separated. The role is `user` (the
+chat, with its own history) or `admin` (the dashboard: Guardrails, Approvals, Logs, Tools,
+Playground). For example:
+
+```
+AUTH_USERS=admin:<admin password>:admin,user:<user password>:user
+```
+
+- Choose strong passwords and save them in your password manager. They guard the whole site; the
+  local defaults `admin123` / `user123` must never be used here.
+- Use letters and digits only (`openssl rand -hex 16` makes a good one). `:` and `,` separate the
+  entries, and `|` or `&` would break the `set_env` helper above.
+- Add more accounts by appending more entries. Failed sign-ins are throttled per client (10 per 5
+  minutes).
+- `AUTH_SECRET` signs the sign-in tokens, which expire after 12 hours. Changing it signs everyone out.
+
+### 7.5 Check the file before deploying
+
+```bash
+server$ ls -l .env
+# -rw------- (only you can read it)
+server$ docker compose --env-file .env -f infra/docker-compose.deploy.yml config -q && echo "config OK"
+server$ grep -E '^PUBLIC_HOST=' .env
+server$ grep -oE '^AUTH_USERS=|:(user|admin)(,|$)' .env | tr -d '\n'; echo
+```
+
+- The `config -q` check prints only errors (never the values). Seeing `config OK` means nothing
+  required is missing. Otherwise it names the setting, e.g. `set AUTH_SECRET in .env`.
+- The first `grep` shows the hostname; the second shows the account roles without the passwords
+  (e.g. `AUTH_USERS=:admin,:user`).
 
 ## 8. Build and start
 
-```bash
-infra/deploy.sh
-```
+### 8.1 Run the deploy inside `tmux`
 
-This builds the images, tags them with the current commit, starts everything, and waits until the
-agent reports healthy. Part 3's pipeline later runs the same script. To watch the agent while it
-starts, use a second SSH session:
+The first deploy takes 15–25 minutes. Running it inside `tmux` means a dropped connection doesn't
+stop it:
 
 ```bash
-docker compose --env-file .env -f infra/docker-compose.deploy.yml logs -f agent
+server$ tmux new -s deploy
+server$ cd ~/boundary_ai && infra/deploy.sh
 ```
 
-- **First build:** about 10–15 minutes (PyTorch and the rest, for ARM).
-- **First start:** the agent downloads the guard's models (~2 GB) into the `hf_cache` volume, then
-  loads them. That takes a few minutes; later starts take about a minute.
-- **Ready** when the log shows `Application startup complete` (Ctrl-C stops following the log; the
-  app keeps running).
+- To detach and leave it running, press **Ctrl-B** then **D**.
+- To come back to it, run `tmux attach -t deploy`.
 
-Check status:
+### 8.2 What you'll see
+
+| Phase | Roughly | On screen |
+|---|---|---|
+| Pull base images (Postgres, Redis, Caddy, Python, Node) | 1–2 min | `Pulling …` lines |
+| Build the agent image: dependencies incl. PyTorch (~1.5 GB) | 5–10 min | `#… uv sync`, `Downloaded torch` |
+| Build the dashboard image | 3–5 min | `npm ci`, `next build`, `Compiled successfully` |
+| Start the containers | seconds | `Container … Started` |
+| Agent downloads the guard's models (~2 GB) and loads them | 3–8 min | the script waits quietly here |
+| Done | | a table of services, `agent … (healthy)`, then `deployed <commit>` |
+
+Later deploys are much faster: cached layers rebuild only what changed, and the models are already
+on disk.
+
+### 8.3 Watch it from a second SSH window (optional)
 
 ```bash
-docker compose --env-file .env -f infra/docker-compose.deploy.yml ps   # agent: healthy
-free -h                                                                  # memory headroom
+server$ cd ~/boundary_ai
+server$ docker compose --env-file .env -f infra/docker-compose.deploy.yml logs -f agent
+#  (model downloads…) then: "Application startup complete."
+server$ docker compose --env-file .env -f infra/docker-compose.deploy.yml logs caddy | grep -i "certificate obtained"
+#  one line per host when HTTPS is ready
 ```
+
+### 8.4 Check the machine is comfortable
+
+```bash
+server$ docker compose --env-file .env -f infra/docker-compose.deploy.yml ps   # all Up; agent (healthy)
+server$ free -h                     # used about 3-4Gi of 7.6Gi; swap mostly unused
+server$ docker stats --no-stream    # memory per container: agent is the big one
+server$ df -h /                     # comfortably below 80% used
+```
+
+### 8.5 If something goes wrong
+
+| What you see | Cause and fix |
+|---|---|
+| `missing .env` | you're not in `~/boundary_ai`, or step 7.2 was skipped |
+| `required variable … is missing a value` | that setting is empty in `.env` (step 7.3) |
+| Agent log: `401 … huggingface` or `gated repo` | `HF_TOKEN` is wrong, or the account hasn't been granted access to Llama Prompt Guard 2 (step 7.1) |
+| Agent restarts; `docker inspect -f '{{.State.OOMKilled}}' $(docker compose --env-file .env -f infra/docker-compose.deploy.yml ps -q agent)` says `true` | out of memory: check `free -h`; don't run the observability profile on a smaller instance |
+| Caddy log: `challenge failed` / `no such host` | ports 80/443 aren't open to *Anywhere* (step 3), or the hostname's IP part doesn't match the Elastic IP |
+| `agent not healthy after 15 minutes` | the script prints the last 80 log lines; usually the HF token or memory, see above |
+| A build step fails while downloading | network hiccup: run `infra/deploy.sh` again (finished steps are cached) |
 
 ## 9. Check it works
 
-From your laptop, in the repo, swapping in your hostnames:
+### 9.1 Automated checks (from your laptop)
 
 ```bash
-infra/smoke-test.sh https://boundary.3-91-20-7.sslip.io https://admin.3-91-20-7.sslip.io
+laptop$ cd ~/personal/boundary_ai && git pull
+laptop$ infra/smoke-test.sh https://boundary.3-91-20-7.sslip.io
 ```
 
 It asks for the admin account's password (the `admin` entry in `AUTH_USERS`; set `ADMIN_USER` if it
-has another name) and checks the access rules on both hosts:
+has another name) and checks 12 access rules:
 - The sign-in page loads; the chat, admin and playground APIs refuse requests without a sign-in.
 - `/metrics` returns 404.
 - A wrong password is refused; the admin can sign in and reach the admin and playground APIs.
-- HTTPS headers are set.
+- The HSTS header is set.
 
-It should end with `all checks passed`. (The same script passed against a local rehearsal of this
-stack before release.)
+It ends with:
 
-In a browser:
-- `https://boundary.…`: the Playground. The sidebar shows **only** the Playground. Run the built-in
-  attack `e2e-ind-blog-planted-write` (replayed, free), then a scan.
-- `https://admin.…`: log in; the full sidebar appears. Send a chat, then check *Guardrails*, *Logs*
-  and *Approvals*. Setting up the sandbox files for the full demo is in [DEMO.md](DEMO.md).
+```
+ok   /health                                      got 200 (want 200)
+ok   sign-in page                                 got 200 (want 200)
+…
+ok   playground API for the admin                 got 200 (want 200)
+ok   HSTS header                                  got 1 (want 1)
+
+all checks passed
+```
+
+Any `FAIL` line names the rule that broke; the troubleshooting table at the end of this guide maps
+the usual ones.
+
+### 9.2 As a user
+
+Open **https://boundary.3-91-20-7.sslip.io**:
+- The browser shows a padlock. It's a real Let's Encrypt certificate.
+- It shows the sign-in page. Sign in with the `user` account.
+- You land on a full-screen chat with no dashboard links. Opening `/guardrails` by hand sends you
+  back to the chat.
+- *"In one sentence, what is Prometheus used for?"* gets a completed answer.
+
+### 9.3 As an admin
+
+Sign out, then sign in with the `admin` account:
+- You land on **Guardrails**, with the dashboard sidebar and no chat.
+- **Guardrails:** the policy file version and its enforced and shadow checks are listed.
+- **Tools (MCP):** `local-sandbox` and `exa` both connected.
+- **Playground → Attack:** pick `e2e-ind-blog-planted-write` and press *Run with and without the
+  guard*. After about 20–40 seconds, *No defence* shows **Hijacked** with a red
+  `write_file notes/pwned.md`, and *Guard on* shows **Attack stopped** (waiting for approval).
+- **Playground → Scan:** stage *User input*, text `Hi, I'm Jane Roe, email me at
+  jane.roe@example.com`. The email is highlighted and replaced with `<EMAIL_1>`.
+
+### 9.4 Load the demo files (for [DEMO.md](DEMO.md))
+
+The agent's sandbox is a Docker volume on the server. Copy the demo fixtures into it:
+
+```bash
+server$ cd ~/boundary_ai
+server$ for f in github_issue_exfil.md issue_env_paste.md crm_export.csv prompt_injection_explainer.html; do
+          docker compose --env-file .env -f infra/docker-compose.deploy.yml \
+            cp "packages/eval/datasets/golden/fixtures/$f" "agent:/data/mcp-sandbox/$f"
+        done
+```
+
+Then sign in as the user and ask the chat *"list files"*: it should show all four.
+
+### 9.5 Write down, then stop for the day
+
+Note these in your password manager:
+- the URL
+- the account names and passwords (`AUTH_USERS`)
+- the instance ID (`i-…`)
+
+When you're done, **stop the instance** (step 12). Starting it again brings everything back,
+including HTTPS.
 
 # Part 2: Operate
 
@@ -260,6 +505,27 @@ rollback to a recent commit starts in seconds without rebuilding.
 
 A guard policy can also be rolled back live, without a deploy: switch a policy's mode on the admin
 *Guardrails* page.
+
+### Upgrading from the two-host setup
+
+Releases before sign-in served a public playground on `boundary.…` and the dashboard on `admin.…`
+behind basic auth. A server set up that way needs its `.env` and GitHub settings changed once,
+before the first deploy of the sign-in release (until then that deploy stops at the config check and
+the old release keeps running):
+
+1. On the server, edit `.env` (step 7.4 explains the accounts). An older `.env` has no `AUTH_*`
+   lines yet, so add them rather than looking for them:
+   - add `AUTH_USERS=admin:<admin password>:admin,user:<user password>:user`
+   - add `AUTH_SECRET=` the output of `openssl rand -hex 32`
+   - delete the `ADMIN_HOST`, `ADMIN_USER` and `ADMIN_PASSWORD_HASH` lines
+   - keep `PUBLIC_HOST` as it is: it's now the only URL
+2. Check it: `docker compose --env-file .env -f infra/docker-compose.deploy.yml config -q && echo "config OK"`.
+3. On GitHub, in the `production` environment (step 19): set the `ADMIN_PASSWORD` secret to the new
+   admin password, and delete the `ADMIN_URL` variable.
+4. Deploy (*Actions → deploy → Run workflow*, or `infra/deploy.sh` on the server).
+
+The `admin.…` address stops working: Caddy no longer has a certificate or site for it. Rolling back
+to a release from before sign-in needs the deleted lines back in `.env`.
 
 ## 12. Stop and start (to save money)
 
@@ -433,7 +699,6 @@ instance through Systems Manager. Use the same region as the server throughout.
   | `AWS_REGION` | e.g. `ap-south-1` |
   | `EC2_INSTANCE_ID` | e.g. `i-0abc123…` |
   | `PUBLIC_URL` | `https://boundary.3-91-20-7.sslip.io` |
-  | `ADMIN_URL` | `https://admin.3-91-20-7.sslip.io` |
 
 - **Environment secret** `ADMIN_PASSWORD`: the admin account's password from `AUTH_USERS`, which
   the smoke test uses for its sign-in checks.

@@ -51,7 +51,7 @@ services:
       APP_ENV: production
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-boundary}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-boundary}
       REDIS_URL: redis://redis:6379/0
-      FRONTEND_ORIGIN: https://${ADMIN_HOST:?set ADMIN_HOST in .env}
+      FRONTEND_ORIGIN: https://${PUBLIC_HOST:?set PUBLIC_HOST in .env}
       # Sign-in (auth.py): accounts as name:password:role, and the key that signs session tokens.
       AUTH_USERS: ${AUTH_USERS:?set AUTH_USERS in .env (name:password:user|admin,...)}
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env (openssl rand -hex 32)}
@@ -106,7 +106,6 @@ services:
       - dashboard
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST:?set PUBLIC_HOST in .env}
-      ADMIN_HOST: ${ADMIN_HOST:?set ADMIN_HOST in .env}
       ACME_EMAIL_DIRECTIVE: ${ACME_EMAIL:+email ${ACME_EMAIL}} # the Caddyfile's global email line, if any
     ports:
       - "80:80"
