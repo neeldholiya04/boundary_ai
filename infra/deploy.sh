@@ -40,6 +40,20 @@ if [[ "$status" != healthy ]]; then
   exit 1
 fi
 
+# The observability profile (Prometheus, Grafana, node-exporter, cAdvisor) is opt-in, so `up` above
+# leaves it alone. If it's running, bring it up to date too: new services start, and Prometheus is
+# recreated so it reads the checked-out config (a file bind mount keeps the old file otherwise).
+# A failure here never fails the deploy; the app is already up.
+if [[ -n "$(docker ps -q --filter label=com.docker.compose.project=boundary-deploy \
+  --filter label=com.docker.compose.service=prometheus)" ]]; then
+  if "${compose[@]}" --profile observability up -d \
+    && "${compose[@]}" --profile observability up -d --no-deps --force-recreate prometheus; then
+    echo "observability profile updated"
+  else
+    echo "warning: the observability profile didn't update; the app deploy is unaffected" >&2
+  fi
+fi
+
 "${compose[@]}" ps
 docker image prune -f >/dev/null # dangling layers only; tagged releases stay for rollbacks
 echo "deployed $RELEASE"

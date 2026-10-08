@@ -51,3 +51,6 @@ boundary-detector-model.zip
 Thumbs.db
 .idea/
 .vscode/
+
+# Load test output (docs/LOADTEST.md)
+loadtest-results/

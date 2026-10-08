@@ -2,8 +2,9 @@
 # infra/deploy.sh: it tags the images with the commit and records it as RELEASE in .env, so any
 # later `docker compose --env-file .env -f infra/docker-compose.deploy.yml ...` uses the live release.
 # There is deliberately no default tag: an old default image once replaced the live agent.
-# Opt-in Prometheus + Grafana: add `--profile observability` (public read-only at /grafana/ and
-# /prometheus/, see the Caddyfile).
+# Opt-in Prometheus + Grafana (+ node-exporter and cAdvisor for host and container metrics): add
+# `--profile observability` (public read-only at /grafana/ and /prometheus/, see the Caddyfile).
+# Once it runs, infra/deploy.sh keeps it running and up to date on every deploy.
 name: boundary-deploy
 
 x-restart: &restart
@@ -161,6 +162,37 @@ services:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
+
+  # Host and per-container CPU / memory / network for the "load & capacity" dashboard. Internal only
+  # (no ports): Prometheus scrapes them over the compose network.
+  node-exporter:
+    <<: *restart
+    image: prom/node-exporter:v1.8.2
+    profiles: [observability]
+    command: ["--path.rootfs=/host"]
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+
+  cadvisor:
+    <<: *restart
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    profiles: [observability]
+    privileged: true
+    devices:
+      - /dev/kmsg
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=15s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.service
+      - --disable_metrics=advtcp,cpu_topology,cpuset,disk,diskIO,hugetlb,memory_numa,percpu,perf_event,process,referenced_memory,resctrl,sched,tcp,udp
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
 
 volumes:
   postgres_data:

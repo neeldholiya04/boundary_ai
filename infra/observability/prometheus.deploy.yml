@@ -12,3 +12,21 @@ scrape_configs:
         labels:
           service: boundary-agent
           environment: production
+
+  # The server itself: CPU, memory, load, network (observability profile).
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          environment: production
+
+  # Each container's CPU and memory, labelled with its compose service (agent, dashboard, ...).
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+        labels:
+          environment: production
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: container_(cpu_usage_seconds_total|memory_working_set_bytes|memory_rss|spec_memory_limit_bytes|network_(receive|transmit)_bytes_total|cpu_cfs_throttled_seconds_total)
+        action: keep
