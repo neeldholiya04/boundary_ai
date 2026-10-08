@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./boundary.db"
     redis_url: str | None = None
     frontend_origin: str = "http://localhost:3000"
+    # Login (see auth.py). "name:password:role,…" with role user (chat) or admin (dashboard). The
+    # defaults are for local use only; set AUTH_USERS and AUTH_SECRET in any deployment.
+    auth_required: bool = True
+    auth_users: str = "admin:admin123:admin,user:user123:user"
+    auth_secret: str | None = None
+    auth_token_hours: int = 12
     # "litellm" (default; "openai" is accepted as an alias), "mock" (demo) or "stub" (load tests); the
     # last two need ALLOW_DEMO_MOCK_PLANNER=true.
     llm_provider: str = "litellm"

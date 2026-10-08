@@ -1,23 +1,17 @@
 "use client";
 
-import {
-  ChatCircleText,
-  CheckSquareOffset,
-  Flask,
-  ListBullets,
-  Plugs,
-  ShieldCheck
-} from "@phosphor-icons/react";
+import { CheckSquareOffset, Flask, ListBullets, Plugs, ShieldCheck, SignOut } from "@phosphor-icons/react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { Session, clearSession, getSession, homeFor } from "@/lib/auth";
 import { Approval } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 
+// The admin dashboard. The chat is for user accounts and has its own full-screen layout.
 const NAV = [
-  { href: "/chat", label: "Chat", icon: ChatCircleText },
   { href: "/guardrails", label: "Guardrails", icon: ShieldCheck },
   { href: "/approvals", label: "Approvals", icon: CheckSquareOffset },
   { href: "/logs", label: "Logs", icon: ListBullets },
@@ -25,22 +19,37 @@ const NAV = [
   { href: "/playground", label: "Playground", icon: Flask }
 ];
 
-/** The admin pages live on an `admin.` host (password-protected by the proxy) or on localhost.
- * Anywhere else this is the public playground, so only the Playground link is shown. Access is
- * enforced by the proxy, not here: this only keeps the public site from advertising locked pages. */
-function isAdminHost(hostname: string): boolean {
-  return ["localhost", "127.0.0.1", "[::1]"].includes(hostname) || hostname.startsWith("admin.");
+/** Where this session may be: users only on /chat, admins anywhere but /chat, nobody signed out
+ * anywhere but /login. Returns the page to send them to instead, or null when they may stay. The API
+ * enforces the same split; this only keeps people off pages that would fail. */
+function redirectFor(session: Session | null, pathname: string): string | null {
+  if (pathname.startsWith("/login")) return null;
+  if (!session) return "/login";
+  if (pathname === "/") return homeFor(session.role);
+  if (session.role === "user" && !pathname.startsWith("/chat")) return "/chat";
+  if (session.role === "admin" && pathname.startsWith("/chat")) return "/guardrails";
+  return null;
+}
+
+export function signOut() {
+  clearSession();
+  window.location.assign("/login");
 }
 
 export function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const [admin, setAdmin] = useState<boolean | null>(null); // unknown until mounted (no SSR flash)
+  const router = useRouter();
+  const [session, setSessionState] = useState<Session | null | undefined>(undefined); // undefined: not read yet
   const [pending, setPending] = useState(0);
 
   useEffect(() => {
-    setAdmin(isAdminHost(window.location.hostname));
-  }, []);
+    const current = getSession();
+    setSessionState(current);
+    const target = redirectFor(current, pathname);
+    if (target && target !== pathname) router.replace(target);
+  }, [pathname, router]);
 
+  const admin = session?.role === "admin";
   // Pending approvals are the one thing that needs a person, so the nav says how many are waiting.
   const loadPending = useCallback(() => {
     if (!admin) return;
@@ -51,7 +60,11 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   useEffect(loadPending, [loadPending]);
   useLiveRefresh(loadPending);
 
-  const items = admin ? NAV : NAV.filter((item) => item.href === "/playground");
+  // Nothing until the session is read and the page is one this session may see (no flash of a page
+  // that would only redirect).
+  if (pathname.startsWith("/login")) return <>{children}</>;
+  if (session === undefined || redirectFor(session, pathname)) return null;
+  if (!admin) return <>{children}</>;
 
   return (
     <div className="shell">
@@ -63,26 +76,31 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           <span>Boundary</span>
         </div>
 
-        {admin !== null && (
-          <nav className="nav" aria-label="Main">
-            {items.map(({ href, label, icon: Icon }) => {
-              const current = pathname === href || (href === "/guardrails" && pathname === "/policies");
-              return (
-                <Link key={href} href={href} title={label} className="nav-item" aria-current={current ? "page" : undefined}>
-                  <Icon size={18} weight={current ? "fill" : "regular"} aria-hidden />
-                  <span className="nav-label">{label}</span>
-                  {href === "/approvals" && pending > 0 && (
-                    <span className="nav-count" aria-label={`${pending} waiting`}>
-                      {pending}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </nav>
-        )}
+        <nav className="nav" aria-label="Main">
+          {NAV.map(({ href, label, icon: Icon }) => {
+            const current = pathname === href || (href === "/guardrails" && pathname === "/policies");
+            return (
+              <Link key={href} href={href} title={label} className="nav-item" aria-current={current ? "page" : undefined}>
+                <Icon size={18} weight={current ? "fill" : "regular"} aria-hidden />
+                <span className="nav-label">{label}</span>
+                {href === "/approvals" && pending > 0 && (
+                  <span className="nav-count" aria-label={`${pending} waiting`}>
+                    {pending}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
+        </nav>
 
-        {admin === false && <p className="side-foot">Guardrails playground</p>}
+        <div className="side-foot side-account">
+          <span className="subtle small" title="Signed in as admin">
+            {session?.username}
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={signOut} title="Sign out">
+            <SignOut size={14} aria-hidden /> <span className="nav-label">Sign out</span>
+          </button>
+        </div>
       </aside>
 
       <main className="main">{children}</main>

@@ -1,4 +1,4 @@
-"""Public playground API.
+"""Playground API (admin only; see auth.py).
 
     POST /api/guard/scan            run one guard stage over pasted text (no LLM, nothing stored)
     GET  /api/playground/scenarios  the built-in poisoned scenarios for attack mode
@@ -39,9 +39,10 @@ class AttackRequest(BaseModel):
 
 
 async def scan_text(guard: Guard, stage: Stage, text: str) -> dict[str, Any]:
-    # The shipped policies only: operator rules are private (their keywords and topics would be
-    # revealed by what fires) and may call a paid judge model.
-    ctx = CheckContext(metadata={"source": "playground", "file_policies_only": True})
+    # Every policy the chat runs, operator rules included: the playground is an admin tool for seeing
+    # what passes and what fires. (It was public once, and then showed the shipped policies only.) The
+    # deployment's own keys (known secrets) are still not checked here, so a scan can't confirm a guess.
+    ctx = CheckContext(metadata={"source": "playground"})
     result = await guard.check(stage, text, ctx)
     return {
         "stage": stage.value,

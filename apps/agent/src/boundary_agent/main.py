@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import time
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from boundary_agent.agent import AgentRuntime
 from boundary_agent.audit import AuditLogger
+from boundary_agent.auth import Authenticator, current_account, required_role, token_from
 from boundary_agent.config import REPO_ROOT, get_settings
 from boundary_agent.db import SessionLocal, get_session, init_db
 from boundary_agent.guarding import (
@@ -51,6 +54,7 @@ from boundary_agent.schemas import (
     ConversationCreate,
     GuardModeRequest,
     GuardRuleTestRequest,
+    LoginRequest,
     MCPServerCreate,
     MCPServerUpdate,
     PolicyCreate,
@@ -206,6 +210,28 @@ def _origins(origin: str) -> list[str]:
     return sorted(twins)
 
 
+authenticator = Authenticator(settings.auth_users, settings.auth_secret, settings.auth_token_hours)
+# Failed logins per client: 10 per 5 minutes, then wait.
+_login_failures: dict[str, list[float]] = {}
+
+
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    """Every /api path needs the role auth.required_role gives it (default: admin). Added before CORS,
+    so CORS wraps it and a 401 still carries the CORS headers the dashboard needs to read it."""
+    role = required_role(request.url.path)
+    if request.method == "OPTIONS" or role is None or not settings.auth_required:
+        return await call_next(request)
+    token = token_from(request)
+    account = authenticator.verify(token) if token else None
+    if account is None:
+        return JSONResponse({"detail": "Sign in first."}, status_code=401)
+    if role == "admin" and account.role != "admin":
+        return JSONResponse({"detail": "This needs an admin account."}, status_code=403)
+    request.state.account = account
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins(settings.frontend_origin),
@@ -233,13 +259,52 @@ async def metrics() -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
+@app.post("/api/auth/login")
+async def login(payload: LoginRequest, request: Request) -> dict:
+    client = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    recent = [t for t in _login_failures.get(client, []) if now - t < 300]
+    if len(recent) >= 10:
+        raise HTTPException(status_code=429, detail="Too many failed sign-ins. Try again in a few minutes.")
+    account = authenticator.login(payload.username.strip(), payload.password)
+    if account is None:
+        _login_failures[client] = [*recent, now]
+        raise HTTPException(status_code=401, detail="Wrong username or password.")
+    _login_failures.pop(client, None)
+    return {"token": authenticator.issue(account), "username": account.username, "role": account.role}
+
+
+@app.get("/api/auth/me")
+async def me(request: Request) -> dict:
+    account = current_account(request)
+    if account is None:  # auth switched off (tests, local tools)
+        return {"username": "local", "role": "admin"}
+    return {"username": account.username, "role": account.role}
+
+
+def _owner_filter(request: Request):
+    """Users see their own conversations; admins (and auth switched off) see all."""
+    account = current_account(request)
+    return None if account is None or account.role == "admin" else account.username
+
+
+async def _owned_conversation(request: Request, session: AsyncSession, conversation_id: str) -> Conversation:
+    conversation = await session.get(Conversation, conversation_id)
+    owner = _owner_filter(request)
+    # Someone else's conversation is reported as missing, not forbidden: ids aren't confirmed.
+    if conversation is None or (owner is not None and conversation.owner != owner):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
+
+
 @app.get("/api/conversations")
-async def list_conversations(session: AsyncSession = Depends(get_session)) -> list[dict]:
+async def list_conversations(request: Request, session: AsyncSession = Depends(get_session)) -> list[dict]:
     await agent_runtime.expire_pending_approvals(session)
     await session.commit()
-    conversations = (
-        await session.scalars(select(Conversation).order_by(Conversation.created_at.desc()))
-    ).all()
+    query = select(Conversation).order_by(Conversation.created_at.desc())
+    if (owner := _owner_filter(request)) is not None:
+        query = query.where(Conversation.owner == owner)
+    conversations = (await session.scalars(query)).all()
     summaries = []
     for conversation in conversations:
         latest_run = await session.scalar(
@@ -286,10 +351,12 @@ async def list_conversations(session: AsyncSession = Depends(get_session)) -> li
 
 @app.post("/api/conversations")
 async def create_conversation(
-    payload: ConversationCreate, session: AsyncSession = Depends(get_session)
+    payload: ConversationCreate, request: Request, session: AsyncSession = Depends(get_session)
 ) -> dict:
+    account = current_account(request)
     conversation = Conversation(
         title=payload.title or "New conversation",
+        owner=account.username if account else None,
         token_budget=payload.token_budget,
         cost_budget=payload.cost_budget,
     )
@@ -301,8 +368,9 @@ async def create_conversation(
 
 @app.get("/api/conversations/{conversation_id}/messages")
 async def get_conversation_messages(
-    conversation_id: str, session: AsyncSession = Depends(get_session)
+    conversation_id: str, request: Request, session: AsyncSession = Depends(get_session)
 ) -> list[dict]:
+    await _owned_conversation(request, session, conversation_id)
     messages = (
         await session.scalars(
             select(Message)
@@ -323,11 +391,20 @@ async def get_conversation_messages(
 
 
 @app.post("/api/chat")
-async def chat(payload: ChatRequest, session: AsyncSession = Depends(get_session)):
+async def chat(payload: ChatRequest, request: Request, session: AsyncSession = Depends(get_session)):
+    account = current_account(request)
+    if payload.conversation_id and await session.get(Conversation, payload.conversation_id) is not None:
+        await _owned_conversation(request, session, payload.conversation_id)
     response = await agent_runtime.handle_chat(
         session, payload.message, payload.conversation_id, response_schema=payload.response_schema
     )
-    response.trace_url = telemetry.trace_url(response.run_id)
+    conversation = await session.get(Conversation, response.conversation_id)
+    if account is not None and conversation is not None and conversation.owner is None:
+        conversation.owner = account.username
+        await session.commit()
+    # Traces are an operator tool (they show every guard decision); users don't get the link.
+    if account is None or account.role == "admin":
+        response.trace_url = telemetry.trace_url(response.run_id)
     return response
 
 

@@ -888,7 +888,9 @@ async def test_stored_excerpt_stays_redacted_when_secrets_rewrite_first(session,
     assert "priya@example.com" not in stored and FAKE_OPENAI_SHORT not in stored
 
 
-async def test_public_playground_scans_never_run_operator_rules(tmp_path):
+async def test_playground_scans_run_operator_rules_like_the_chat(tmp_path):
+    # Live: a keyword rule blocked in chat but not in the playground, which ran shipped policies only
+    # (it was public). The playground is admin-only now and shows every policy the chat runs.
     from boundary_agent.playground import scan_text
     from boundary_agent.rules import RuleSpec, compile_rule
     from boundary_guard import Stage
@@ -907,5 +909,5 @@ async def test_public_playground_scans_never_run_operator_rules(tmp_path):
 
     report = await scan_text(guard, Stage.USER_INPUT, "Project Falcon, mail priya@example.com")
 
-    assert [p["policy_id"] for p in report["policies"]] == ["email"]
-    assert report["text"] == "Project Falcon, mail <EMAIL_1>"
+    assert sorted(p["policy_id"] for p in report["policies"]) == ["email", "rule_codenames"]
+    assert report["text"] == "<REDACTED_1>, mail <EMAIL_1>"
