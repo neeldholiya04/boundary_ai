@@ -4,7 +4,7 @@
 # This is the production set: the enforced detectors plus cheap regex baselines in shadow. Detectors kept only for comparison live in policies/experiments/ so they don't add
 # latency here. Thresholds are tuned on the dev split at a ≤2% dev false-positive budget
 # (`boundary-eval tune <result> --max-fpr 0.02`); see docs/EVAL.md for the sweep.
-version: 10
+version: 11
 
 defaults:
   timeout_ms: 400
@@ -62,7 +62,7 @@ policies:
       model: sentence-transformers/all-MiniLM-L6-v2
       revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
       allow: topics/research.v3.yaml
-      deny: topics/deny.v3.yaml
+      deny: topics/deny.v4.yaml
       # v10: block only when the request really resembles a deny exemplar (>= 0.25) and is clearly
       # nearer to it (> 0.05). With margin 0 and no floor, short conversation ("hello", "ok
       # continue") was blocked whenever a deny exemplar was nearer by a hair. Tuned on the golden dev

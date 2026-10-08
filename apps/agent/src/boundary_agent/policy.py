@@ -23,6 +23,9 @@ class EvaluatedRule:
     reason: str
     specificity: int
     priority: int
+    # What the user may be told: the reason without guard internals (the flagged run's detail names
+    # a policy). Defaults to `reason`.
+    user_reason: str | None = None
 
 
 def policy_mode(policy: Policy) -> str:
@@ -87,6 +90,7 @@ class PolicyEngine:
         return PolicyDecision(
             verdict=winner.verdict,
             reason=winner.reason,
+            user_reason=winner.user_reason or winner.reason,
             matched_rule_ids=[winner.policy_id],
             requires_approval=winner.verdict == "require_approval",
             shadow=shadow,
@@ -145,14 +149,14 @@ class PolicyEngine:
                     verdict = action.get("verdict", "require_approval")
                     if verdict not in VERDICT_WEIGHT:
                         verdict = "require_approval"
-                    reason = action.get("reason", "Run read content the guard flagged as possible injection.")
-                    if intent.taint_reason:
-                        reason = f"{reason} ({intent.taint_reason})"
+                    base = action.get("reason", "Run read content the guard flagged as possible injection.")
+                    reason = f"{base} ({intent.taint_reason})" if intent.taint_reason else base
                     evaluated.append(
                         EvaluatedRule(
                             policy_id=policy.id,
                             verdict=verdict,
                             reason=reason,
+                            user_reason=base,
                             specificity=self._specificity(policy),
                             priority=policy.priority,
                         )

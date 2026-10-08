@@ -6,8 +6,8 @@
     "mode": "replay",
     "model": "openai/gpt-4.1-mini",
     "timeouts": "lifted",
-    "config_hash": "a11c4bb52af02e41",
-    "generated_at": "2026-10-08T11:16:02+00:00",
+    "config_hash": "252a0a9ced67d285",
+    "generated_at": "2026-10-08T11:29:46+00:00",
     "cassette": {
       "hits": 263,
       "misses": 0,

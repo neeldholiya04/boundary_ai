@@ -1,6 +1,6 @@
 # Detector eval: extended
 
-config `a11c4bb52af02e41` (policy v10) · dataset `2bd0eb1d7fbff5e1` (2054 records) · git `db83b44179d0` (dirty) · 2026-10-08T11:08:41+00:00 · repeats=1 · timeouts lifted
+config `252a0a9ced67d285` (policy v11) · dataset `2bd0eb1d7fbff5e1` (2054 records) · git `67eae9432196` (dirty) · 2026-10-08T11:23:38+00:00 · repeats=1 · timeouts lifted
 
 Catch rate = share of positives the policy fired on; FPR = share of negatives it fired on. Brackets are 95% Wilson intervals. Scored on `would_action`, so shadow policies count. Latency is per policy per check (ms).
 
@@ -8,33 +8,33 @@ Catch rate = share of positives the policy fired on; FPR = share of negatives it
 
 | Policy | Detects | Mode | Pos / Neg | Catch rate | FPR | Precision | p50 / p99 ms | $/1k | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| `user_injection_promptguard` | injection, jailbreak | enforce | 177 / 212 | 75.7% [69–81] | 0.0% [0–2] | 100% | 47 / 456 | 0.0000 | 0 |
-| `jailbreak_patterns` | injection, jailbreak | shadow | 177 / 212 | 31.6% [25–39] | 0.0% [0–2] | 100% | 0.03 / 0.70 | 0.0000 | 0 |
-| `topic` | off_topic | enforce | 0 / 62 | – | 1.6% [0–9] | 0% | 10 / 27 | 0.0000 | 0 |
-| `tool_output_injection_protectai` | injection | shadow | 234 / 170 | 35.5% [30–42] | 14.1% [10–20] | 78% | 42 / 56 | 0.0000 | 0 |
+| `user_injection_promptguard` | injection, jailbreak | enforce | 177 / 212 | 75.7% [69–81] | 0.0% [0–2] | 100% | 48 / 461 | 0.0000 | 0 |
+| `jailbreak_patterns` | injection, jailbreak | shadow | 177 / 212 | 31.6% [25–39] | 0.0% [0–2] | 100% | 0.03 / 0.68 | 0.0000 | 0 |
+| `topic` | off_topic | enforce | 0 / 62 | – | 1.6% [0–9] | 0% | 11 / 26 | 0.0000 | 0 |
+| `tool_output_injection_protectai` | injection | shadow | 234 / 170 | 35.5% [30–42] | 14.1% [10–20] | 78% | 42 / 54 | 0.0000 | 0 |
 | `tool_output_injection_heuristic` | injection | shadow | 234 / 170 | 23.1% [18–29] | 0.0% [0–2] | 100% | 0.06 / 0.09 | 0.0000 | 0 |
-| `secrets` | secret | enforce | 94 / 1095 | 100.0% [96–100] | 0.0% [0–0] | 100% | 0.23 / 2.42 | 0.0000 | 0 |
-| `secrets_egress` | secret | enforce | 36 / 42 | 100.0% [90–100] | 0.0% [0–8] | 100% | 0.12 / 0.42 | 0.0000 | 0 |
-| `pii` | pii | enforce | 254 / 935 | 87.8% [83–91] | 0.0% [0–0] | 100% | 9.30 / 114 | 0.0000 | 0 |
-| `pii_egress` | pii | enforce | 22 / 56 | 68.2% [47–84] | 0.0% [0–6] | 100% | 3.10 / 5.70 | 0.0000 | 0 |
+| `secrets` | secret | enforce | 94 / 1095 | 100.0% [96–100] | 0.0% [0–0] | 100% | 0.23 / 2.41 | 0.0000 | 0 |
+| `secrets_egress` | secret | enforce | 36 / 42 | 100.0% [90–100] | 0.0% [0–8] | 100% | 0.12 / 0.44 | 0.0000 | 0 |
+| `pii` | pii | enforce | 254 / 935 | 87.8% [83–91] | 0.0% [0–0] | 100% | 9.53 / 114 | 0.0000 | 0 |
+| `pii_egress` | pii | enforce | 22 / 56 | 68.2% [47–84] | 0.0% [0–6] | 100% | 3.19 / 5.69 | 0.0000 | 0 |
 | `toxicity` | toxicity | enforce | 94 / 302 | 81.9% [73–88] | 1.0% [0–3] | 96% | 20 / 35 | 0.0000 | 0 |
-| `groundedness` | hallucination | shadow | 70 / 70 | 94.3% [86–98] | 88.6% [79–94] | 52% | 404 / 1173 | 0.0000 | 0 |
+| `groundedness` | hallucination | shadow | 70 / 70 | 94.3% [86–98] | 88.6% [79–94] | 52% | 443 / 1229 | 0.0000 | 0 |
 
 ## dev split
 
 | Policy | Detects | Mode | Pos / Neg | Catch rate | FPR | Precision | p50 / p99 ms | $/1k | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| `user_injection_promptguard` | injection, jailbreak | enforce | 119 / 189 | 70.6% [62–78] | 0.0% [0–2] | 100% | 47 / 456 | 0.0000 | 0 |
-| `jailbreak_patterns` | injection, jailbreak | shadow | 119 / 189 | 20.2% [14–28] | 0.0% [0–2] | 100% | 0.03 / 0.70 | 0.0000 | 0 |
-| `topic` | off_topic | enforce | 0 / 43 | – | 0.0% [0–8] | – | 10 / 27 | 0.0000 | 0 |
-| `tool_output_injection_protectai` | injection | shadow | 98 / 99 | 30.6% [22–40] | 12.1% [7–20] | 71% | 42 / 56 | 0.0000 | 0 |
+| `user_injection_promptguard` | injection, jailbreak | enforce | 119 / 189 | 70.6% [62–78] | 0.0% [0–2] | 100% | 48 / 461 | 0.0000 | 0 |
+| `jailbreak_patterns` | injection, jailbreak | shadow | 119 / 189 | 20.2% [14–28] | 0.0% [0–2] | 100% | 0.03 / 0.68 | 0.0000 | 0 |
+| `topic` | off_topic | enforce | 0 / 43 | – | 0.0% [0–8] | – | 11 / 26 | 0.0000 | 0 |
+| `tool_output_injection_protectai` | injection | shadow | 98 / 99 | 30.6% [22–40] | 12.1% [7–20] | 71% | 42 / 54 | 0.0000 | 0 |
 | `tool_output_injection_heuristic` | injection | shadow | 98 / 99 | 18.4% [12–27] | 0.0% [0–4] | 100% | 0.06 / 0.09 | 0.0000 | 0 |
-| `secrets` | secret | enforce | 62 / 689 | 100.0% [94–100] | 0.0% [0–1] | 100% | 0.23 / 2.42 | 0.0000 | 0 |
-| `secrets_egress` | secret | enforce | 16 / 20 | 100.0% [81–100] | 0.0% [0–16] | 100% | 0.12 / 0.42 | 0.0000 | 0 |
-| `pii` | pii | enforce | 111 / 640 | 95.5% [90–98] | 0.0% [0–1] | 100% | 9.30 / 114 | 0.0000 | 0 |
-| `pii_egress` | pii | enforce | 7 / 29 | 85.7% [49–97] | 0.0% [0–12] | 100% | 3.10 / 5.70 | 0.0000 | 0 |
+| `secrets` | secret | enforce | 62 / 689 | 100.0% [94–100] | 0.0% [0–1] | 100% | 0.23 / 2.41 | 0.0000 | 0 |
+| `secrets_egress` | secret | enforce | 16 / 20 | 100.0% [81–100] | 0.0% [0–16] | 100% | 0.12 / 0.44 | 0.0000 | 0 |
+| `pii` | pii | enforce | 111 / 640 | 95.5% [90–98] | 0.0% [0–1] | 100% | 9.53 / 114 | 0.0000 | 0 |
+| `pii_egress` | pii | enforce | 7 / 29 | 85.7% [49–97] | 0.0% [0–12] | 100% | 3.19 / 5.69 | 0.0000 | 0 |
 | `toxicity` | toxicity | enforce | 56 / 190 | 85.7% [74–93] | 1.6% [1–5] | 94% | 20 / 35 | 0.0000 | 0 |
-| `groundedness` | hallucination | shadow | 50 / 50 | 86.0% [74–93] | 82.0% [69–90] | 51% | 404 / 1173 | 0.0000 | 0 |
+| `groundedness` | hallucination | shadow | 50 / 50 | 86.0% [74–93] | 82.0% [69–90] | 51% | 443 / 1229 | 0.0000 | 0 |
 
 ## Misses and false alarms (test)
 
@@ -152,6 +152,6 @@ For attack categories this is the catch count; for `benign` it is the false-alar
 | Stage | Samples | p50 | p95 | p99 |
 |---|---|---|---|---|
 | final_output | 642 | 20 | 31 | 36 |
-| tool_args | 114 | 3.38 | 5.09 | 5.97 |
-| tool_output | 601 | 43 | 53 | 56 |
-| user_input | 697 | 48 | 332 | 459 |
+| tool_args | 114 | 3.34 | 5.19 | 5.95 |
+| tool_output | 601 | 42 | 51 | 54 |
+| user_input | 697 | 48 | 332 | 464 |
