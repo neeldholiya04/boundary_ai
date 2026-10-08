@@ -75,6 +75,12 @@ docker compose --env-file .env -f infra/docker-compose.yml --profile observabili
   would-blocks, LLM spend, async backlog; block rate by stage; shadow vs enforce by policy;
   escalations and redactions; errors and timeouts; p50/p99 per policy; a latency heatmap; run
   latency; cost per run; tokens; and playground traffic on its own panel.
+- A second dashboard, **boundary-ai: load & capacity** (`boundary-capacity.json`), for reading a
+  load test or busy traffic: requests/s and run latency p50/p95/p99 by outcome, guard latency by
+  stage, guard timeouts and backlog, LLM calls/tokens/cost, and the server's CPU, load, memory and
+  network plus CPU and memory per container. The server and container panels need node-exporter and
+  cAdvisor, which only the deployment's observability profile runs. How to run a load test and read
+  it: [LOADTEST.md](LOADTEST.md).
 
 ## Playground
 
@@ -112,7 +118,9 @@ The deployment ([DEPLOY.md](DEPLOY.md)) closes the items Phase 10 left open:
 - **Grafana and Prometheus are public and read-only** at `/grafana/` and `/prometheus/` while the
   observability profile runs: anonymous Grafana viewers with no login form, and Prometheus with its
   admin APIs off and query time and concurrency capped. The metrics carry no prompts, accounts or
-  keys (counts, latencies, model and policy names).
+  keys (counts, latencies, model and policy names, and the server's CPU, memory, network and
+  container names from node-exporter and cAdvisor, which are internal only and reached through
+  Prometheus).
 - **Real client IPs:** the agent trusts the forwarded address from Caddy (the only thing that can
   reach it), so the rate limits apply per real visitor.
 - Grafana Cloud remote-write remains an option for alerting from outside the server.

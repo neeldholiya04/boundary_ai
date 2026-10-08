@@ -361,6 +361,7 @@ enforced by the agent. Every merge to `main` can deploy itself and is checked by
 | [docs/DEMO.md](docs/DEMO.md) | A step-by-step live demo |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Deploying, CI/CD, operating, upgrading |
 | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Tracing, metrics, dashboards, playground limits |
+| [docs/LOADTEST.md](docs/LOADTEST.md) | Load testing the deployment with real traffic, and reading it in Grafana |
 | [docs/CI.md](docs/CI.md) | The CI workflows and gates |
 | [docs/IDEA.md](docs/IDEA.md) · [docs/PLAN.md](docs/PLAN.md) | The original spec and build plan (historical) |
 | [CREDITS.md](CREDITS.md) | Where each part came from; third-party models, datasets and rules |
