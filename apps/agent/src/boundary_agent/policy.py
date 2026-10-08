@@ -23,6 +23,16 @@ class EvaluatedRule:
     reason: str
     specificity: int
     priority: int
+    # What the user may be told: the reason without guard internals (the flagged run's detail names
+    # a policy). Defaults to `reason`.
+    user_reason: str | None = None
+
+
+def policy_mode(policy: Policy) -> str:
+    """off / shadow / enforce. `enabled` predates modes and still switches a policy off."""
+    if not policy.enabled:
+        return "off"
+    return getattr(policy, "mode", None) or "enforce"
 
 
 class PolicyEngine:
@@ -50,10 +60,48 @@ class PolicyEngine:
                 )
             )
 
+        # Shadow policies are evaluated the same way, but their verdicts are only reported (logged as
+        # what they would have done), never acted on. Off, or disabled, means not evaluated.
+        enforced: list[Policy] = []
+        shadowed: list[Policy] = []
         for policy in policies:
-            if not policy.enabled or not self._matches_scope(policy, intent):
+            mode = policy_mode(policy)
+            if mode == "off" or not self._matches_scope(policy, intent):
                 continue
+            (shadowed if mode == "shadow" else enforced).append(policy)
 
+        shadow = [
+            {"policy_id": rule.policy_id, "verdict": rule.verdict, "reason": rule.reason}
+            for rule in self._evaluate_policies(intent, shadowed)
+        ]
+        evaluated.extend(self._evaluate_policies(intent, enforced))
+
+        if not evaluated:
+            return PolicyDecision(
+                verdict="allow",
+                reason="No matching policy blocked the call.",
+                matched_rule_ids=[],
+                shadow=shadow,
+            )
+
+        winner = max(
+            evaluated, key=lambda item: (VERDICT_WEIGHT[item.verdict], item.specificity, item.priority)
+        )
+        return PolicyDecision(
+            verdict=winner.verdict,
+            reason=winner.reason,
+            user_reason=winner.user_reason or winner.reason,
+            matched_rule_ids=[winner.policy_id],
+            requires_approval=winner.verdict == "require_approval",
+            shadow=shadow,
+        )
+
+    def _evaluate_policies(
+        self, intent: ToolExecutionIntent, policies: Iterable[Policy]
+    ) -> list[EvaluatedRule]:
+        """The verdict each policy reaches on this call (policies in scope only)."""
+        evaluated: list[EvaluatedRule] = []
+        for policy in policies:
             if policy.rule_type == "block_tool":
                 evaluated.append(
                     EvaluatedRule(
@@ -101,14 +149,14 @@ class PolicyEngine:
                     verdict = action.get("verdict", "require_approval")
                     if verdict not in VERDICT_WEIGHT:
                         verdict = "require_approval"
-                    reason = action.get("reason", "Run read content the guard flagged as possible injection.")
-                    if intent.taint_reason:
-                        reason = f"{reason} ({intent.taint_reason})"
+                    base = action.get("reason", "Run read content the guard flagged as possible injection.")
+                    reason = f"{base} ({intent.taint_reason})" if intent.taint_reason else base
                     evaluated.append(
                         EvaluatedRule(
                             policy_id=policy.id,
                             verdict=verdict,
                             reason=reason,
+                            user_reason=base,
                             specificity=self._specificity(policy),
                             priority=policy.priority,
                         )
@@ -142,20 +190,7 @@ class PolicyEngine:
                         )
                     )
 
-        if not evaluated:
-            return PolicyDecision(
-                verdict="allow", reason="No matching policy blocked the call.", matched_rule_ids=[]
-            )
-
-        winner = max(
-            evaluated, key=lambda item: (VERDICT_WEIGHT[item.verdict], item.specificity, item.priority)
-        )
-        return PolicyDecision(
-            verdict=winner.verdict,
-            reason=winner.reason,
-            matched_rule_ids=[winner.policy_id],
-            requires_approval=winner.verdict == "require_approval",
-        )
+        return evaluated
 
     def _matches_scope(self, policy: Policy, intent: ToolExecutionIntent) -> bool:
         if policy.target_tool and self._normalize_tool_name(policy.target_tool) != self._normalize_tool_name(

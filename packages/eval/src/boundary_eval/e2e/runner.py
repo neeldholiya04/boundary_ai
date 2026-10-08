@@ -21,7 +21,7 @@ from boundary_agent.telemetry import DISABLED, Telemetry
 from boundary_eval.e2e.checks import Trajectory, attack_succeeded, task_succeeded
 from boundary_eval.e2e.fixture_mcp import FixtureMCP
 from boundary_eval.e2e.scenarios import Kind, Scenario
-from boundary_eval.runner import _NO_TIMEOUT_MS
+from boundary_eval.runner import _NO_TIMEOUT_MS, eval_guard
 from boundary_guard import Guard, Mode
 
 
@@ -84,7 +84,7 @@ class E2ERun:
 def _build_guard(policy_path: Path, config: Config, *, enforce_timeouts: bool = False) -> Guard | None:
     if not config.guard:
         return None
-    guard = Guard.from_yaml(policy_path)
+    guard = eval_guard(policy_path)
     if not enforce_timeouts:
         # Same rule as the detector eval: a verdict must not depend on how fast (or how short of
         # memory) the machine is. Timeout behaviour is measured by the load test instead.

@@ -12,8 +12,11 @@ its own database session.
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
+import re
+import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -79,8 +82,12 @@ class GuardOutcome:
 
 def _excerpt(text: str, decisions: list[PolicyDecision], sensitive: set[str]) -> str:
     """Redact spans found by sensitive policies (PII, secrets, anything that redacts). Spans from
-    e.g. injection rules stay readable: the attack text is what a reviewer needs to see."""
-    spans = [span for d in decisions if d.policy_id in sensitive for span in d.spans]
+    e.g. injection rules stay readable: the attack text is what a reviewer needs to see.
+
+    `text` must be the text the spans index into (`GuardResult.checked_text`): after an enforced
+    transform (secrets' redact_first) the other detectors' offsets are into the rewritten text, and a
+    transform that rewrote has already removed its own matches from it."""
+    spans = [span for d in decisions if d.policy_id in sensitive and not d.rewritten for span in d.spans]
     return redact(text, spans)[:EXCERPT_CHARS]
 
 
@@ -163,19 +170,96 @@ class GuardAdapter:
         self.guard = guard
         self.audit_logger = audit_logger
         self.telemetry = telemetry
-        labels = set(taint_labels or ["injection"])
-        # Policies whose matches are sensitive and get redacted in stored excerpts.
-        self.sensitive_policies = {
+        self.taint_labels = set(taint_labels or ["injection"])
+        self._sets_for: str | None = None
+        self._sensitive: set[str] = set()
+        self._taint: set[str] = set()
+        self._secret: set[str] = set()
+        self._secret_labels: set[str] = set()
+
+    def _refresh(self) -> None:
+        # Rules added in the dashboard change the policy set at runtime: recompute when the config does.
+        if self._sets_for == self.guard.config_hash:
+            return
+        policies = self.guard.config.policies
+        # Operator rules that match words or patterns are usually about sensitive terms (codenames,
+        # account numbers), so their matches are kept out of stored excerpts whatever the rule does.
+        self._sensitive = {
             p.id
-            for p in guard.config.policies
-            if p.action is Action.REDACT or {"pii", "secret"}.intersection(p.detects)
+            for p in policies
+            if p.action is Action.REDACT
+            or {"pii", "secret"}.intersection(p.detects)
+            or p.detector.type in {"keywords", "pattern"}
         }
-        # Tool-output policies whose firing (enforced or shadow) taints the run.
-        self.taint_policies = {
+        self._taint = {
             p.id
-            for p in guard.config.policies
-            if Stage.TOOL_OUTPUT in p.stages and labels.intersection(p.detects)
+            for p in policies
+            if Stage.TOOL_OUTPUT in p.stages and self.taint_labels.intersection(p.detects)
         }
+        # Policies that find credentials, and the placeholder labels they redact with (`OPENAI_KEY`,
+        # `SECRET`, ...): a placeholder with one of these labels stands for a secret nobody here has.
+        self._secret = {p.id for p in policies if "secret" in p.detects}
+        labels = {"KNOWN_SECRET"}
+        for pid in self._secret:
+            labels |= {rule.label for rule in getattr(self.guard.detector_of(pid), "rules", [])}
+        self._secret_labels = labels
+        self._sets_for = self.guard.config_hash
+
+    @property
+    def secret_policies(self) -> set[str]:
+        """Policies that detect credentials."""
+        self._refresh()
+        return self._secret
+
+    def secret_placeholders(self, text: str) -> list[str]:
+        """The placeholders in `text` that stand for a redacted secret (`<OPENAI_KEY_1>`), in order."""
+        self._refresh()
+        found = [p for p in PLACEHOLDER.findall(text) if p[1:-1].rsplit("_", 1)[0] in self._secret_labels]
+        return list(dict.fromkeys(found))
+
+    def policy_message(self, policy_id: str) -> str | None:
+        """The policy's own message for the user, if it has one."""
+        policy = next((p for p in self.guard.config.policies if p.id == policy_id), None)
+        return policy.message if policy else None
+
+    def policy_detects(self, policy_id: str) -> list[str]:
+        policy = next((p for p in self.guard.config.policies if p.id == policy_id), None)
+        return list(policy.detects) if policy else []
+
+    @property
+    def secrets_enforced(self) -> bool:
+        """Whether a secrets policy is enforcing, i.e. whether secret placeholders can appear at all."""
+        self._refresh()
+        return any(self.guard.mode_of(pid) is Mode.ENFORCE for pid in self._secret)
+
+    def assigned_secret_placeholders(self, text: str) -> list[str]:
+        """Secret placeholders used as a value (`OPENAI_API_KEY=<OPENAI_KEY_1>`, `"key": "{{openai_key_1}}"`).
+
+        That is the model writing "the key" it never had. A placeholder merely mentioned (a note that
+        says a log held `<OPENAI_KEY_1>`) is not. Case, templating braces and URL/HTML encoding are
+        normalised first, so `%3COPENAI_KEY_1%3E` or `{{openai_key_1}}` count too.
+        """
+        self._refresh()
+        plain = html.unescape(urllib.parse.unquote(text))
+        found: list[str] = []
+        for m in _ASSIGNED_PLACEHOLDER.finditer(plain):
+            label = m.group("label").upper()
+            wrapped = m.group("open") or m.group("close")
+            if label in self._secret_labels and (wrapped or m.group("n")):
+                found.append(f"<{label}_{m.group('n') or '1'}>")
+        return list(dict.fromkeys(found))
+
+    @property
+    def sensitive_policies(self) -> set[str]:
+        """Policies whose matches are sensitive and get redacted in stored excerpts."""
+        self._refresh()
+        return self._sensitive
+
+    @property
+    def taint_policies(self) -> set[str]:
+        """Tool-output policies whose firing (enforced or shadow) taints the run."""
+        self._refresh()
+        return self._taint
 
     async def check(
         self,
@@ -203,7 +287,8 @@ class GuardAdapter:
             # Redacted with the sensitive spans the blocking policies found. Set before the next await,
             # so async policies scheduled by this check see it when their decisions reach the sink;
             # the raw text itself is never handed on (and the trace only gets this excerpt).
-            excerpt = _excerpt(text, result.decisions, self.sensitive_policies)
+            checked = result.checked_text if result.checked_text is not None else text
+            excerpt = _excerpt(checked, result.decisions, self.sensitive_policies)
             span.record(result, excerpt)
         digest = hashlib.sha256(text.encode()).hexdigest()
         ctx.metadata[_EXCERPT_KEY] = excerpt
@@ -285,14 +370,122 @@ class GuardDecisionSink:
         await self.broker.publish({"type": "guard.async_decision", "payload": payload})
 
 
+PLACEHOLDER = re.compile(r"<[A-Z][A-Z0-9_]*_\d+>")
+# A placeholder-like value right after `=` or `:` (optionally quoted, JSON-escaped, or templated):
+# `=<OPENAI_KEY_1>`, `: "{{OPENAI_KEY}}"`, `=${secret_2}`, `="$OPENAI_KEY_1"`.
+_ASSIGNED_PLACEHOLDER = re.compile(
+    r"""[:=][ \t]*(?:\\?["'`])?[ \t]*(?P<open><|\{\{[ \t]*|\$\{|\$)?"""
+    r"""(?P<label>[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z][A-Za-z0-9]*)*)(?:_(?P<n>\d+))?"""
+    r"""(?P<close>>|[ \t]*\}\}|\})?(?=[ \t]*(?:\\?["'`]|\\[nr]|[,;)\]}\s]|$))"""
+)
+
+
+def redaction_notice(outcome: GuardOutcome | None, original: str) -> str | None:
+    """Tell the user what the guard removed from their own message, by placeholder and policy.
+
+    Without this a pasted key silently becomes `<OPENAI_KEY_1>`, and a file the user asked for gets
+    the placeholder instead of the value with nothing to say why.
+    """
+    if outcome is None or outcome.text == original:
+        return None
+    placeholders = sorted(set(PLACEHOLDER.findall(outcome.text)) - set(PLACEHOLDER.findall(original)))
+    if not placeholders:
+        return None
+    return (
+        f"Removed from your message before it was stored or sent to the model: {', '.join(placeholders)}. "
+        "The assistant only sees the placeholder, so it can't use or write the original value."
+    )
+
+
+# What the user is told when the guard stops something, by what the stopping policy detects. The
+# detector's own reasons (scores, thresholds, the exemplar it matched) go to the logs only: they mean
+# nothing to a user and tell an attacker how close they came.
+_USER_INPUT_MESSAGES = {
+    "injection": "I can't act on that request because it reads like an attempt to change my instructions. "
+    "If that's not what you meant, try rephrasing it.",
+    "off_topic": "That's outside what I can help with here. I'm set up for research, notes and work with "
+    "your files and tools.",
+    "toxicity": "I can't help with that request as written. Try rephrasing it.",
+    "secret": "Your message contains a secret I'm not allowed to process. Remove it and send it again.",
+    "pii": "Your message contains personal information I'm not allowed to process. Remove it and send it "
+    "again.",
+}
+_STAGE_MESSAGES = {
+    "tool_args": "I stopped before running {tool} because the call didn't pass a safety check.",
+    "tool_output": "I stopped because what {tool} returned didn't pass a safety check.",
+    "final_output": "I wrote an answer but couldn't send it because it didn't pass a safety check. "
+    "Try asking in a different way.",
+}
+_DETECTS_ORDER = ("secret", "pii", "injection", "jailbreak", "off_topic", "toxicity")
+
+
+def user_block_message(
+    guard: GuardAdapter | None,
+    outcome: GuardOutcome,
+    stage: Stage,
+    *,
+    run_id: str,
+    tool_name: str | None = None,
+) -> str:
+    """A plain sentence for the user, chosen by where the guard stopped and what the stopping policy
+    detects; a policy's own `message` (e.g. an operator rule's) wins. Ends with a run reference so the
+    details can be found in the logs."""
+    driving = outcome.policies(outcome.action)
+    message = None
+    if guard is not None:
+        own = [m for pid in driving if (m := guard.policy_message(pid))]
+        if own:
+            message = own[0]
+        elif stage is Stage.USER_INPUT:
+            detects = {label for pid in driving for label in guard.policy_detects(pid)}
+            kind = next((k for k in _DETECTS_ORDER if k in detects), None)
+            kind = "injection" if kind == "jailbreak" else kind
+            message = _USER_INPUT_MESSAGES.get(kind or "")
+    sends_secret = guard is not None and any("secret" in guard.policy_detects(pid) for pid in driving)
+    if message is None and stage is Stage.TOOL_ARGS and sends_secret:
+        tool = tool_name or "the tool"
+        message = f"I stopped before running {tool} because it would have sent a secret."
+    if message is None:
+        template = _STAGE_MESSAGES.get(stage.value, "I can't help with that request.")
+        message = template.format(tool=tool_name or "the tool")
+    return f"{message} (Reference: run {run_id[:8]}; details are in the logs.)"
+
+
+def secret_withheld_message(placeholders: list[str], also_stopped: bool = False) -> str:
+    """The reply when a secret was removed from the user's own message: a fixed text, so the model
+    can't claim it used or wrote a value it never saw."""
+    names = ", ".join(placeholders)
+    text = (
+        f"I removed the secret from your message before reading it ({names}), so I never saw it and "
+        "can't use, write or repeat it. I haven't done anything with this request. If it belongs in a "
+        "file, add it yourself, for example in your .env file. Send the request again without the "
+        "secret if there's something else I can do."
+    )
+    if also_stopped:
+        # Not which check: a rule's id is its name, which may be the sensitive word.
+        text += " (It also didn't pass another safety check.)"
+    return text
+
+
+def secret_placeholder_message(tool_name: str, placeholders: list[str]) -> str:
+    """The reply when a tool call carries a secret's placeholder instead of a value."""
+    names = ", ".join(placeholders)
+    return (
+        f"Stopped before running {tool_name}: it would have set a value to {names}, a placeholder the "
+        "guard put in place of a secret, not the secret itself. Nothing was changed. Add the real value "
+        "yourself."
+    )
+
+
 def withheld_result(outcome: GuardOutcome, *, reviewed: bool = False) -> dict[str, Any]:
     """What the planner (and the Message table) sees in place of blocked tool output."""
-    policies = outcome.policies(Action.BLOCK) or outcome.policies(Action.ESCALATE)
+    # No policy ids or detector reasons: the model can repeat whatever it is given, and a rule's id is
+    # its name (which may be the sensitive word). Those are in the logs.
     return {
         "withheld_by_guard": {
-            "policies": policies,
-            "reason": "denied in content review" if reviewed else outcome.reason(),
-            "note": "The tool returned content the guard would not pass to the model. Continue without it.",
+            "reviewed": reviewed,
+            "note": "The tool returned content the guard would not pass to the model. Continue without it, "
+            "and tell the user only that a safety check withheld it.",
         }
     }
 
@@ -378,5 +571,6 @@ __all__ = [
     "decision_payload",
     "mode_counts",
     "redacted_tool_result",
+    "redaction_notice",
     "withheld_result",
 ]

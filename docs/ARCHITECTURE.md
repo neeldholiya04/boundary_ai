@@ -37,11 +37,25 @@ marked `tainted` with the reason. The policy engine's `guard_signal` rule type r
  "action": {"verdict": "require_approval", "reason": "..."}}
 ```
 
-On startup the agent seeds this rule for `write_file` and `delete_file` if no `guard_signal` rule
-exists (`SEED_GUARD_SIGNAL_POLICIES`). This is how tool-output injection is handled in policy v3:
+On first start the agent creates this rule for `write_file` and `delete_file`
+(`SEED_GUARD_SIGNAL_POLICIES`) and records `policy.defaults_seeded`, so a default an operator deletes
+or edits stays that way across restarts. This is how tool-output injection is handled in policy v3:
 no off-the-shelf detector is good enough to *block* tool output (docs/EVAL.md), but its verdict is
 good enough to make a human approve mutating actions after suspicious content was read. Normal
 precedence still applies: explicit `block_tool` rules beat taint approvals.
+
+## Secrets in the user's own message
+
+A redaction tells the model a value existed without giving it the value, and a model left to it will
+act on the placeholder: in a live test it wrote `<OPENAI_KEY_1>` into `.env` over the real key and
+then said it had written the key. Two deterministic stops prevent that:
+
+- when a secrets policy (`detects: [secret]`) redacts the user's message, the run ends before the
+  planner with a fixed answer (the secret was removed before it was read, nothing was done, add it
+  yourself), audited as `guard.secret_withheld`;
+- a tool call whose arguments carry a secret's placeholder (a label from those policies' rulesets, or
+  `KNOWN_SECRET`) is refused before it runs (`guard.secret_placeholder_blocked`). Placeholders for
+  personal data (`<EMAIL_1>`) still reach tools: a note that mentions a redacted address is fine.
 
 ## Content review
 
@@ -88,6 +102,57 @@ A policy's **mode** can be changed while the agent runs, from the Guardrails das
 
 The A/B form of the delta (attack-success and utility under shadow vs enforced) comes from the
 end-to-end harness: `boundary-eval e2e --config shadow --config filters_taint`.
+
+## Guard rules: policies written in the dashboard
+
+`policies/guard.yaml` is the reviewed baseline (secrets, PII, injection, toxicity, ...), measured in CI.
+A **rule** is a policy an operator adds on top while the app runs, from the Guardrails page or
+`/api/guard/rules`. A rule says:
+
+| | Options |
+|---|---|
+| where | any of the four stages; on tool stages, optionally only some tools (`tools`) |
+| what it checks | `keywords` (whole words, any case), `pattern` (regexes; a 0.25 s search budget per check, repetition counts capped), `topic` (example requests, compared by meaning with the shipped topic model), `llm_judge` (a policy in plain words, judged by an LLM), `always` (every call: tool rules) |
+| what happens | flag, redact (keywords/pattern only), escalate to a human, block; tool-output rules can also taint the run (in shadow too, like the injection detectors) |
+| mode | off / shadow (the default for a new rule) / enforce |
+
+Each rule compiles (`apps/agent/src/boundary_agent/rules.py`) into one guard policy, `rule_<slug>`, added
+to the running guard with `Guard.add_policy`: same pipeline, decision log, stats, metrics and config hash
+as the file's policies. File policies can't be replaced or removed by a rule, only switched off.
+Rules are stored in `guard_rules` (the spec as written, plus a version), reloaded at startup (a rule that
+fails to load is reported on the page, the rest still run), and every change is audited with the full
+spec (`guard.rule_created|updated|deleted`), which is each rule's history.
+
+A rule carries its own examples (`should_fire` / `should_pass`). **Test** (`POST /api/guard/rules/test`)
+runs a draft against them and against the eval set's benign records at the rule's stages, and reports
+the would-fire rate on that clean traffic, before anything is stored. `GET /api/guard/rules/export` writes
+the active rules as a policy-file fragment, so a rule that proved itself can be reviewed into
+`guard.yaml` and measured in CI like the rest.
+
+### Text rules and tool rules
+
+The dashboard has one "New rule" flow with two kinds, one per engine:
+
+| | Text rule (guard) | Tool rule (policy engine) |
+|---|---|---|
+| Looks at | what a request, tool result or answer says | a tool call: the tool and its arguments |
+| Can | flag, redact, ask a person, block, taint the run | ask before running, block, keep a path inside folders, react to a tainted run, cap tokens or cost |
+| Stored in | `guard_rules`, compiled into a guard policy | `policies` (`/api/policies`) |
+| Modes | off / shadow / enforce | off / shadow / enforce (shadow verdicts are logged on `policy.decision` as `shadow`) |
+
+Tool rules stay in the policy engine because it owns what the guard doesn't: path normalisation for
+folder rules, conversation budgets, the taint → approval link, and re-checking a call when an approval
+resumes it. The guard's `always` check can still express "every `send_email` needs approval"; existing
+rules of that kind keep working, but new ones are made as tool rules.
+
+Notes:
+- An `llm_judge` rule sends the checked text to the judge model's provider (by default the one the
+  agent uses; a rule may only name models in `GUARD_JUDGE_MODELS`), costs one call per 12k-character
+  chunk, and fails closed if the judge errors or returns something that isn't a verdict. Start it in
+  shadow or async. Judged dry runs take at most 10 examples and are rate limited.
+- Each rule's history (the audit log) keeps the full spec, including its keywords: treat it like the
+  rules themselves. Matches of keyword and pattern rules are left out of stored excerpts.
+- Rules are created on the admin host only; the public playground can't reach these endpoints.
 
 ## Async checks
 

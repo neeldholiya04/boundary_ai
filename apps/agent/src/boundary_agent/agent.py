@@ -10,7 +10,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from boundary_agent.audit import AuditLogger
 from boundary_agent.config import Settings
-from boundary_agent.guarding import GuardAdapter, GuardOutcome, redacted_tool_result, withheld_result
+from boundary_agent.guarding import (
+    GuardAdapter,
+    GuardOutcome,
+    redacted_tool_result,
+    redaction_notice,
+    secret_placeholder_message,
+    secret_withheld_message,
+    user_block_message,
+    withheld_result,
+)
 from boundary_agent.llm import BasePlanner
 from boundary_agent.mcp_manager import MCPManager
 from boundary_agent.models import ApprovalRequest, Conversation, MCPServer, Message, Policy, Run
@@ -104,6 +113,44 @@ class AgentRuntime:
             conversation_id=conversation.id,
             run_id=run.id,
         )
+        # A secret was removed from the request. The model only has a placeholder, so anything it did
+        # with "the key" would be wrong: writing the placeholder over the real value, then saying it
+        # wrote the key. Stop here and say so plainly instead of running the planner.
+        redacted_by_secrets = (
+            self.guard is not None
+            and outcome is not None
+            and bool(set(outcome.policies(Action.REDACT)) & self.guard.secret_policies)
+        )
+        if redacted_by_secrets:
+            # Only placeholders the guard just put in. Counted, not looked up: a user quoting
+            # `<OPENAI_KEY_1>` from an earlier answer next to a new key must not hide the new one.
+            new = [
+                p
+                for p in self.guard.secret_placeholders(user_text)
+                if user_text.count(p) > user_message.count(p)
+            ]
+            if withheld := new:
+                # Checked before a block or a review: those stop the run too, but the answer should
+                # say what happened to the key. The other policies are named after it.
+                stopped_by = outcome.policies(Action.BLOCK) + outcome.policies(Action.ESCALATE)
+                await self.audit_logger.record(
+                    session,
+                    "guard.secret_withheld",
+                    {"stage": "user_input", "placeholders": withheld},
+                    conversation_id=conversation.id,
+                    run_id=run.id,
+                )
+                response = self._blocked_response(
+                    conversation_id=conversation.id,
+                    run_id=run.id,
+                    run=run,
+                    executed_steps=[],
+                    session=session,
+                    assistant_message=secret_withheld_message(withheld, also_stopped=bool(stopped_by)),
+                )
+                await session.commit()
+                return response
+
         if outcome is not None and outcome.action is Action.BLOCK:
             response = self._blocked_response(
                 conversation_id=conversation.id,
@@ -111,7 +158,7 @@ class AgentRuntime:
                 run=run,
                 executed_steps=[],
                 session=session,
-                assistant_message=f"Request blocked by the guard: {outcome.reason()}",
+                assistant_message=user_block_message(self.guard, outcome, Stage.USER_INPUT, run_id=run.id),
             )
             await session.commit()
             return response
@@ -121,7 +168,6 @@ class AgentRuntime:
             )
             await session.commit()
             return response
-
         tools = await self.mcp_manager.list_tools(session, refresh=False)
         await self.audit_logger.record(
             session,
@@ -132,6 +178,8 @@ class AgentRuntime:
         )
 
         response = await self._run_planner_loop(session, conversation, run, user_text, tools, [])
+        if notice := redaction_notice(outcome, user_message):
+            response.guard_notices.append(notice)
         await session.commit()
         return response
 
@@ -303,7 +351,9 @@ class AgentRuntime:
                         run=run,
                         executed_steps=executed_steps,
                         session=session,
-                        assistant_message=f"The answer was withheld by the guard: {outcome.reason()}",
+                        assistant_message=user_block_message(
+                            self.guard, outcome, Stage.FINAL_OUTPUT, run_id=run.id
+                        ),
                     )
                 if outcome is not None and outcome.action is Action.ESCALATE:
                     return await self._request_content_review(
@@ -336,7 +386,14 @@ class AgentRuntime:
             executed_steps.append(tool_response)
 
         assistant_message = "Stopped after reaching the maximum number of tool steps for this run."
-        session.add(Message(conversation_id=conversation.id, role="assistant", content=assistant_message))
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=assistant_message,
+                metadata_json={"notice": "stopped"},
+            )
+        )
         run.status = "failed"
         run.latest_response = assistant_message
         await self.audit_logger.record(
@@ -376,10 +433,41 @@ class AgentRuntime:
                 executed_tool_calls=self._serialize_steps(executed_steps),
             )
 
+        # A secret's placeholder used as a value in a tool call (`OPENAI_API_KEY=<OPENAI_KEY_1>`) is
+        # the model writing or sending "the key" it never had. Refuse before anything runs. A
+        # placeholder merely mentioned (a note about a redacted log) goes through.
+        args_text = json.dumps(tool_call.arguments, sort_keys=True, ensure_ascii=False)
+        held = (
+            self.guard.assigned_secret_placeholders(args_text)
+            if self.guard is not None and self.guard.secrets_enforced
+            else []
+        )
+        if held:
+            if approval_context is not None:
+                approval_context.status = "superseded"
+                approval_context.decided_at = datetime.utcnow()
+                approval_context.decision_comment = "Tool call carried a secret placeholder."
+            await self.audit_logger.record(
+                session,
+                "guard.secret_placeholder_blocked",
+                {"tool_name": tool_call.tool_name, "placeholders": held},
+                conversation_id=conversation.id,
+                run_id=run.id,
+            )
+            return self._blocked_response(
+                conversation_id=conversation.id,
+                run_id=run.id,
+                run=run,
+                executed_steps=executed_steps,
+                tool_call=tool_call,
+                session=session,
+                assistant_message=secret_placeholder_message(tool_call.tool_name, held),
+            )
+
         outcome = await self._guard(
             session,
             Stage.TOOL_ARGS,
-            json.dumps(tool_call.arguments, sort_keys=True, ensure_ascii=False),
+            args_text,
             conversation,
             run,
             tool_name=tool_call.tool_name,
@@ -398,7 +486,9 @@ class AgentRuntime:
                 executed_steps=executed_steps,
                 tool_call=tool_call,
                 session=session,
-                assistant_message=f"Tool call blocked by the guard: {outcome.reason()}",
+                assistant_message=user_block_message(
+                    self.guard, outcome, Stage.TOOL_ARGS, run_id=run.id, tool_name=tool_call.tool_name
+                ),
             )
         guard_escalation = outcome is not None and outcome.action is Action.ESCALATE
 
@@ -473,9 +563,23 @@ class AgentRuntime:
             session.add(approval)
             await session.flush()
             run.status = "waiting_approval"
-            run.paused_reason = reason[:255]
-            assistant_message = f"Tool call requires approval: {reason}"
-            session.add(Message(conversation_id=conversation.id, role="assistant", content=assistant_message))
+            # The approval keeps the full reason for whoever decides; the user gets a plain line. A tool
+            # policy's reason is written by the operator for users; the guard's names scores.
+            assistant_message = (
+                f"{tool_call.tool_name} needs a person's approval before it runs: "
+                f"{decision.user_reason or decision.reason}"
+                if decision.verdict == "require_approval"
+                else f"{tool_call.tool_name} needs a person's approval before it runs."
+            )
+            run.paused_reason = assistant_message[:255]
+            session.add(
+                Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=assistant_message,
+                    metadata_json={"notice": "waiting"},
+                )
+            )
             await self.audit_logger.record(
                 session,
                 "approval.requested",
@@ -615,7 +719,13 @@ class AgentRuntime:
                         executed_steps=executed_steps,
                         tool_call=tool_call,
                         session=session,
-                        assistant_message=f"Tool output blocked by the guard: {outcome.reason()}",
+                        assistant_message=user_block_message(
+                            self.guard,
+                            outcome,
+                            Stage.TOOL_OUTPUT,
+                            run_id=run.id,
+                            tool_name=tool_call.tool_name,
+                        ),
                     )
                 # Drop-and-continue: the model learns the content was withheld and carries on.
                 tool_result = withheld_result(outcome)
@@ -756,9 +866,17 @@ class AgentRuntime:
         session.add(approval)
         await session.flush()
         run.status = "waiting_approval"
-        run.paused_reason = reason[:255]
-        assistant_message = f"Content is waiting for human review: {reason}"
-        session.add(Message(conversation_id=conversation.id, role="assistant", content=assistant_message))
+        # Full reason on the approval (for the reviewer); a plain line for the user.
+        assistant_message = "This needs a person's review before I can continue."
+        run.paused_reason = assistant_message
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=assistant_message,
+                metadata_json={"notice": "waiting"},
+            )
+        )
         await self.audit_logger.record(
             session,
             "approval.requested",
@@ -855,7 +973,14 @@ class AgentRuntime:
     ) -> ChatResponse:
         run.status = "denied"
         run.latest_response = message
-        session.add(Message(conversation_id=conversation.id, role="assistant", content=message))
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=message,
+                metadata_json={"notice": "blocked"},
+            )
+        )
         return ChatResponse(
             conversation_id=conversation.id, run_id=run.id, status="denied", assistant_message=message
         )
@@ -978,6 +1103,8 @@ class AgentRuntime:
                 "reason": decision.reason,
                 "matched_rule_ids": decision.matched_rule_ids,
                 "source": source,
+                # Shadow policies: what they would have decided, not acted on.
+                **({"shadow": decision.shadow} if decision.shadow else {}),
             },
             conversation_id=conversation_id,
             run_id=run_id,
@@ -994,7 +1121,15 @@ class AgentRuntime:
         assistant_message: str,
         tool_call: ToolCall | None = None,
     ) -> ChatResponse:
-        session.add(Message(conversation_id=conversation_id, role="assistant", content=assistant_message))
+        # Tagged so the chat shows it as a notice, not as an answer.
+        session.add(
+            Message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=assistant_message,
+                metadata_json={"notice": "blocked"},
+            )
+        )
         run.status = "blocked"
         run.latest_response = assistant_message
         return ChatResponse(

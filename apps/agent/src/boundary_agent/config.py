@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     # On startup, add `guard_signal` rules (tainted run -> approval for write_file / delete_file)
     # when no guard_signal rule exists yet.
     seed_guard_signal_policies: bool = True
+    # Model for guard rules that use an LLM judge, when a rule doesn't name one. Unset = LLM_MODEL.
+    guard_judge_model: str | None = None
+    # Further models a judge rule may name (any rule can use the default above and LLM_MODEL).
+    guard_judge_models: list[str] = []
+    # Judged dry runs cost a model call per example, so they take fewer.
+    guard_rule_test_examples_judge: int = 10
+    # Benign eval records a rule dry run checks for false alarms (judge rules use fewer: each is a call).
+    guard_rule_test_sample: int = 300
+    guard_rule_test_sample_judge: int = 25
     max_tool_steps: int = 6
     exa_mcp_enabled: bool = True
     exa_mcp_url: str = "https://mcp.exa.ai/mcp"

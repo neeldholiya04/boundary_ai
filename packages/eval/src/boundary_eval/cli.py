@@ -10,8 +10,8 @@ from pathlib import Path
 from boundary_eval.compare import compare, comparison_markdown, load_gates
 from boundary_eval.dataset import Label, LoadedRecord, Split, load_records
 from boundary_eval.report import to_markdown
-from boundary_eval.runner import run_detectors, to_result, write_json
-from boundary_guard import Guard, GuardConfig, load_config
+from boundary_eval.runner import eval_guard, run_detectors, to_result, write_json
+from boundary_guard import GuardConfig, load_config
 
 DEFAULT_POLICIES = Path("policies/guard.yaml")
 DEFAULT_GATES = Path("packages/eval/gates.yaml")
@@ -131,7 +131,7 @@ def cmd_detectors(args: argparse.Namespace) -> int:
     splits = set(args.split or [Split.DEV.value, Split.TEST.value])
     records = [r for r in report.records if r.record.split.value in splits]
 
-    guard = Guard.from_yaml(args.policies)
+    guard = eval_guard(args.policies)
     run = asyncio.run(
         run_detectors(
             guard, records, repeats=args.repeats, suite=suite, enforce_timeouts=args.enforce_timeouts
@@ -233,7 +233,6 @@ def cmd_e2e(args: argparse.Namespace) -> int:
     from boundary_eval.e2e.report import to_result as e2e_result
     from boundary_eval.e2e.runner import CONFIGS, run_matrix
     from boundary_eval.e2e.scenarios import load_dir
-    from boundary_guard import Guard
 
     repo_root = Path.cwd()
     scenarios, resolved = load_dir(Path(args.scenarios), repo_root)
@@ -279,7 +278,7 @@ def cmd_e2e(args: argparse.Namespace) -> int:
         "mode": args.mode,
         "model": args.model or _agent_model(),
         "timeouts": "enforced" if args.enforce_timeouts else "lifted",
-        "config_hash": Guard.from_yaml(policy_path).config_hash,
+        "config_hash": eval_guard(policy_path).config_hash,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "cassette": {"hits": cassette.hits, "misses": cassette.misses, "recorded": cassette.recorded},
     }

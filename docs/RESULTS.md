@@ -5,7 +5,7 @@ command that reproduces it. Don't edit by hand.
 
 ## Headline
 
-Attack success fell from **40.0% to 20.0%** (guard off → as shipped) at a **33.3% benign-task failure rate**, adding **6900 ms at p99** per request (load test, one user, on a laptop with 8.6 GB of RAM that pages the models out; see the caveats), for **$1.28 per 1k requests** in LLM spend (the guard's own detectors run locally: $0). Test split: 5 attack and 3 benign end-to-end scenarios, so each scenario moves a rate by 20–33 points; the confidence intervals below are wide on purpose.
+Attack success fell from **77.8% to 11.1%** (guard off → as shipped) at a **25.0% benign-task failure rate**, adding **6900 ms at p99** per request (load test, one user, on a laptop with 8.6 GB of RAM that pages the models out; see the caveats), for **$0.88 per 1k requests** in LLM spend (the guard's own detectors run locally: $0). Test split: 9 attack and 4 benign end-to-end scenarios, so each scenario moves a rate by 11–25 points; the confidence intervals below are wide on purpose.
 
 ## End to end: does the agent get hijacked?
 
@@ -16,13 +16,13 @@ Utility under attack: the user's real task still got done during an attack. 95% 
 
 | Config | What runs | Attack success | Benign task success | Utility under attack | $/task |
 |---|---|---|---|---|---|
-| `no_defense` | guard off | 40.0% [12–77] | 100.0% [44–100] | 100.0% | 0.0012 |
-| `spotlight_only` | spotlighting only | 60.0% [23–88] | 100.0% [44–100] | 100.0% | 0.0019 |
-| `filters` | guard as shipped, no taint | 40.0% [12–77] | 100.0% [44–100] | 100.0% | 0.0012 |
-| `filters_spotlight` | guard + spotlighting, no taint | 60.0% [23–88] | 100.0% [44–100] | 100.0% | 0.0019 |
-| `shadow` | every policy in shadow + taint | 20.0% [4–62] | 66.7% [21–94] | 60.0% | 0.0013 |
-| `filters_taint` | **as shipped**: guard + spotlighting + taint | 20.0% [4–62] | 66.7% [21–94] | 60.0% | 0.0013 |
-| `enforce` | every policy enforced + taint | 0.0% [0–43] | 66.7% [21–94] | 80.0% | 0.0010 |
+| `no_defense` | guard off | 77.8% [45–94] | 100.0% [51–100] | 66.7% | 0.0009 |
+| `spotlight_only` | spotlighting only | 77.8% [45–94] | 100.0% [51–100] | 66.7% | 0.0013 |
+| `filters` | guard as shipped, no taint | 33.3% [12–65] | 100.0% [51–100] | 100.0% | 0.0008 |
+| `filters_spotlight` | guard + spotlighting, no taint | 33.3% [12–65] | 100.0% [51–100] | 100.0% | 0.0012 |
+| `shadow` | every policy in shadow + taint | 55.6% [27–81] | 75.0% [30–95] | 44.4% | 0.0010 |
+| `filters_taint` | **as shipped**: guard + spotlighting + taint | 11.1% [2–43] | 75.0% [30–95] | 77.8% | 0.0009 |
+| `enforce` | every policy enforced + taint | 0.0% [0–30] | 75.0% [30–95] | 88.9% | 0.0007 |
 
 Reproduce: `uv run boundary-eval e2e` (no key needed). Per-scenario notes:
 [EVAL.md](EVAL.md#end-to-end-results).
@@ -34,33 +34,35 @@ records of that kind for the policy. Latency is per check on this machine (see c
 
 | Policy | Stage(s) | Mode | Catch rate (95% CI) | FPR (95% CI) | Pos / Neg | p50 / p99 ms | $/1k |
 |---|---|---|---|---|---|---|---|
-| `user_injection_promptguard` | user_input | enforce | 82.5% [76–87] | 0.0% [0–2] | 177 / 176 | 84 / 1030 | 0.00 |
-| `jailbreak_patterns` | user_input | shadow | 31.6% [25–39] | 0.0% [0–2] | 177 / 176 | 0.1 / 1.5 | 0.00 |
-| `topic` | user_input | enforce | – | 0.0% [0–13] | 0 / 26 | 19 / 77 | 0.00 |
-| `tool_output_injection_protectai` | tool_output | shadow | 35.5% [30–42] | 4.4% [2–9] | 234 / 135 | 84 / 135 | 0.00 |
-| `tool_output_injection_heuristic` | tool_output | shadow | 23.1% [18–29] | 0.0% [0–3] | 234 / 135 | 0.0 / 0.1 | 0.00 |
-| `secrets` | tool_args, tool_output, final_output | enforce | – | 0.0% [0–1] | 0 / 753 | 0.0 / 0.6 | 0.00 |
-| `pii` | user_input, tool_output, final_output | enforce | 87.8% [83–91] | 0.0% [0–0] | 254 / 821 | 17 / 196 | 0.00 |
-| `pii_egress` | tool_args | enforce | 68.2% [47–84] | 0.0% [0–30] | 22 / 9 | 4.5 / 7.9 | 0.00 |
+| `user_injection_promptguard` | user_input | enforce | 75.7% [69–81] | 0.0% [0–2] | 177 / 212 | 48 / 461 | 0.00 |
+| `jailbreak_patterns` | user_input | shadow | 31.6% [25–39] | 0.0% [0–2] | 177 / 212 | 0.0 / 0.7 | 0.00 |
+| `topic` | user_input | enforce | – | 1.6% [0–9] | 0 / 62 | 11 / 26 | 0.00 |
+| `tool_output_injection_protectai` | tool_output | shadow | 35.5% [30–42] | 14.1% [10–20] | 234 / 170 | 42 / 54 | 0.00 |
+| `tool_output_injection_heuristic` | tool_output | shadow | 23.1% [18–29] | 0.0% [0–2] | 234 / 170 | 0.1 / 0.1 | 0.00 |
+| `secrets` | user_input, tool_output, final_output | enforce | 100.0% [96–100] | 0.0% [0–0] | 94 / 1095 | 0.2 / 2.4 | 0.00 |
+| `secrets_egress` | tool_args | enforce | 100.0% [90–100] | 0.0% [0–8] | 36 / 42 | 0.1 / 0.4 | 0.00 |
+| `pii` | user_input, tool_output, final_output | enforce | 87.8% [83–91] | 0.0% [0–0] | 254 / 935 | 9.5 / 114 | 0.00 |
+| `pii_egress` | tool_args | enforce | 68.2% [47–84] | 0.0% [0–6] | 22 / 56 | 3.2 / 5.7 | 0.00 |
 | `research_note_schema` | final_output | enforce | – | – | 0 / 0 | – / – | 0.00 |
-| `toxicity` | final_output | enforce | 81.9% [73–88] | 1.2% [0–3] | 94 / 259 | 56 / 1490 | 0.00 |
-| `groundedness` | final_output | shadow (async) | 94.3% [86–98] | 88.6% [79–94] | 70 / 70 | 1481 / 5789 | 0.00 |
+| `toxicity` | final_output | enforce | 81.9% [73–88] | 1.0% [0–3] | 94 / 302 | 20 / 35 | 0.00 |
+| `groundedness` | final_output | shadow (async) | 94.3% [86–98] | 88.6% [79–94] | 70 / 70 | 443 / 1229 | 0.00 |
 
 Golden set (hand-written, includes the hardest cases), test split:
 
 | Policy | Stage(s) | Mode | Catch rate (95% CI) | FPR (95% CI) | Pos / Neg | p50 / p99 ms | $/1k |
 |---|---|---|---|---|---|---|---|
-| `user_injection_promptguard` | user_input | enforce | 83.3% [44–97] | 28.6% [8–64] | 6 / 7 | 87 / 2109 | 0.00 |
-| `jailbreak_patterns` | user_input | shadow | 16.7% [3–56] | 14.3% [3–51] | 6 / 7 | 0.1 / 1.0 | 0.00 |
-| `topic` | user_input | enforce | 100.0% [21–100] | 8.3% [1–35] | 1 / 12 | 19 / 502 | 0.00 |
-| `tool_output_injection_protectai` | tool_output | shadow | 40.0% [17–69] | 41.7% [19–68] | 10 / 12 | 121 / 3956 | 0.00 |
-| `tool_output_injection_heuristic` | tool_output | shadow | 20.0% [6–51] | 8.3% [1–35] | 10 / 12 | 0.1 / 1.1 | 0.00 |
-| `secrets` | tool_args, tool_output, final_output | enforce | 100.0% [61–100] | 0.0% [0–10] | 6 / 34 | 0.0 / 1.2 | 0.00 |
-| `pii` | user_input, tool_output, final_output | enforce | 100.0% [51–100] | 0.0% [0–8] | 4 / 42 | 15 / 404 | 0.00 |
-| `pii_egress` | tool_args | enforce | 100.0% [21–100] | 0.0% [0–39] | 1 / 6 | 5.8 / 19 | 0.00 |
-| `research_note_schema` | final_output | enforce | 100.0% [21–100] | 0.0% [0–79] | 1 / 1 | 0.5 / 7.9 | 0.00 |
-| `toxicity` | final_output | enforce | 50.0% [9–91] | 0.0% [0–30] | 2 / 9 | 49 / 1410 | 0.00 |
-| `groundedness` | final_output | shadow (async) | 100.0% [34–100] | 0.0% [0–79] | 2 / 1 | 108 / 3248 | 0.00 |
+| `user_injection_promptguard` | user_input | enforce | 83.3% [44–97] | 0.9% [0–5] | 6 / 106 | 44 / 67 | 0.00 |
+| `jailbreak_patterns` | user_input | shadow | 16.7% [3–56] | 0.9% [0–5] | 6 / 106 | 0.0 / 0.0 | 0.00 |
+| `topic` | user_input | enforce | 78.9% [64–89] | 2.7% [1–9] | 38 / 74 | 9.6 / 13 | 0.00 |
+| `tool_output_injection_protectai` | tool_output | shadow | 40.0% [17–69] | 56.5% [37–74] | 10 / 23 | 45 / 515 | 0.00 |
+| `tool_output_injection_heuristic` | tool_output | shadow | 20.0% [6–51] | 4.3% [1–21] | 10 / 23 | 0.1 / 0.5 | 0.00 |
+| `secrets` | user_input, tool_output, final_output | enforce | 100.0% [83–100] | 0.0% [0–3] | 19 / 144 | 0.1 / 1.1 | 0.00 |
+| `secrets_egress` | tool_args | enforce | 100.0% [68–100] | 0.0% [0–39] | 8 / 6 | 0.2 / 0.7 | 0.00 |
+| `pii` | user_input, tool_output, final_output | enforce | 100.0% [51–100] | 0.0% [0–2] | 4 / 159 | 7.1 / 47 | 0.00 |
+| `pii_egress` | tool_args | enforce | 100.0% [21–100] | 0.0% [0–23] | 1 / 13 | 3.7 / 9.3 | 0.00 |
+| `research_note_schema` | final_output | enforce | 100.0% [21–100] | 0.0% [0–79] | 1 / 1 | 0.1 / 0.3 | 0.00 |
+| `toxicity` | final_output | enforce | 50.0% [9–91] | 0.0% [0–19] | 2 / 16 | 17 / 33 | 0.00 |
+| `groundedness` | final_output | shadow (async) | 100.0% [34–100] | 0.0% [0–79] | 2 / 1 | 45 / 64 | 0.00 |
 
 Reproduce: `uv run boundary-eval detectors --suite extended` and `--suite golden --repeats 20`.
 
@@ -68,10 +70,10 @@ Reproduce: `uv run boundary-eval detectors --suite extended` and `--suite golden
 
 | Stage | Checks timed | p50 ms | p95 ms | p99 ms |
 |---|---|---|---|---|
-| user_input | 420 | 87 | 1117 | 2110 |
-| tool_args | 200 | 5.9 | 16 | 19 |
-| tool_output | 640 | 121 | 1873 | 3957 |
-| final_output | 360 | 49 | 1077 | 1411 |
+| user_input | 4040 | 44 | 58 | 67 |
+| tool_args | 400 | 3.9 | 5.6 | 10.0 |
+| tool_output | 920 | 45 | 209 | 519 |
+| final_output | 560 | 18 | 31 | 34 |
 
 From the golden run (20 timed passes after a warm-up). The guard's detectors are local models, so
 the guard itself costs $0 per request; the only spend is the agent's own LLM calls.
@@ -156,14 +158,14 @@ Reproduce: `uv run boundary-eval loadtest --out packages/eval/baselines/loadtest
 
 ## Provenance
 
-- golden: policy v4, config `cdc446ad25e5cb26`, 81 records, generated 2026-10-07T08:20:40+00:00
-- extended: policy v4, config `cdc446ad25e5cb26`, 1784 records, generated 2026-10-07T08:32:30+00:00
-- end to end: config `cdc446ad25e5cb26`, model `openai/gpt-4.1-mini`, generated 2026-10-07T08:37:50+00:00
+- golden: policy v11, config `252a0a9ced67d285`, 296 records, generated 2026-10-08T11:28:25+00:00
+- extended: policy v11, config `252a0a9ced67d285`, 2054 records, generated 2026-10-08T11:23:38+00:00
+- end to end: config `252a0a9ced67d285`, model `openai/gpt-4.1-mini`, generated 2026-10-08T11:29:46+00:00
 - load test: 2026-10-07T09:01:50Z
 
 ## Caveats
 
-- **Small end-to-end sample.** 5 attack / 3 benign test scenarios: each one moves a rate by 20–33
+- **Small end-to-end sample.** 9 attack / 4 benign test scenarios: each one moves a rate by 11–25
   points. The per-scenario story in EVAL.md matters more than the percentages.
 - **Latency was measured on a developer laptop under memory pressure** (models paged out between
   requests), so tail latencies are pessimistic; Phase 12 re-runs the load test on the deployed

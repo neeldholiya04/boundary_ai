@@ -5,10 +5,13 @@ description = "Composable input/output filtering layer for tool-calling LLM agen
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "google-re2>=1.1",
   "json-repair>=0.30",
   "jsonschema>=4.23",
   "pydantic>=2.9",
   "pyyaml>=6.0",
+  # Operator-written `pattern` rules: per-search timeouts, so a bad regex can't stall a request.
+  "regex>=2024.9",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +25,9 @@ ml = [
   "spacy>=3.8,<3.9",
   "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 ]
+
+# `llm_judge` rules (any provider through LiteLLM).
+judge = ["litellm>=1.50"]
 
 # Prometheus metrics via boundary_guard.metrics.PrometheusSink.
 metrics = ["prometheus-client>=0.20"]

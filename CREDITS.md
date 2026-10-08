@@ -37,6 +37,16 @@ exactly what changed here.
 
 The hand-written attack records in the golden eval set were written by the group.
 
+## Third-party rules
+
+`policies/rules/providers.gitleaks.yaml` is generated from the rule catalogue of
+[gitleaks](https://github.com/gitleaks/gitleaks) (MIT License, Copyright (c) 2019 Zachary Rice), pinned
+to commit `b58d3f102cf3`, by `policies/rules/import_gitleaks.py`. The full licence text is reproduced
+in the generated file's header. Changes on import: the generic catch-all rule, the five rules scoped to
+file paths and the global allowlist are left out; a repeated capture group is replaced by the whole
+match and alternatives use the first group that matched; the end-of-key context also accepts
+`,` `.` `)` `]` `}` `>` so keys in prose match.
+
 ## Third-party models and datasets
 
 Every model and dataset is pinned to a revision; licences and sources are listed in

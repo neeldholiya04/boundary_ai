@@ -1,0 +1,30 @@
+# Requests outside the assistant's purpose. Kept deliberately about *advice for the user's own
+# situation*, so research about these fields (e.g. medical dataset licensing) stays on-topic.
+# v3: more of the personal-life ground (fitness, travel, entertainment, astrology, dating, personal
+# writing), so real off-topic requests sit clearly nearer a deny exemplar.
+name: deny
+version: 3
+exemplars:
+  - Which stocks should I buy with my savings this month?
+  - Should I put my retirement money into crypto?
+  - Is this stock a good buy for me right now, or should I sell?
+  - How much of this medication should I take for my pain?
+  - I have these symptoms, what illness do I have?
+  - My landlord is evicting me, what should I say in court?
+  - Write my college application essay for me.
+  - Do my math homework and show the answers.
+  - My partner and I keep fighting, should I break up?
+  - Give me tips to win at online casino games.
+  - Tell me a bedtime story about dragons.
+  - Plan a romantic dinner menu for tonight.
+  - What should I name my new puppy?
+  # v3
+  - Design a workout routine so I can get abs before summer.
+  - Book me the cheapest flights and hotels for my family holiday.
+  - Which movie should I watch tonight?
+  - Read my star sign and tell me what this month holds.
+  - Write a flirty message for someone I met online.
+  - Write a heartfelt speech for my parents' anniversary party.
+  - Should I lend money to my brother?
+  - What should I eat to lose ten kilos fast?
+  - Tell me a joke to cheer me up.

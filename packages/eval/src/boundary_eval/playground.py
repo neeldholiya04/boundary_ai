@@ -54,7 +54,9 @@ class Paths:
 @lru_cache(maxsize=4)
 def _builtin(scenario_dir: Path, repo_root: Path) -> tuple[dict[str, Scenario], dict[str, dict[str, Any]]]:
     scenarios, resolved = load_dir(scenario_dir, repo_root)
-    attacks = {s.id: s for s in scenarios if s.kind is Kind.ATTACK}
+    # The demo shows a poisoned page and what the agent does with it, so only the indirect-injection
+    # attacks; the credential scenarios have no page to show (their keys are fakes, but still keys).
+    attacks = {s.id: s for s in scenarios if s.kind is Kind.ATTACK and s.id.startswith("e2e-ind-")}
     return attacks, resolved
 
 
