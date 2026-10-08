@@ -145,8 +145,8 @@ export default function ApprovalsPage() {
                 <div className="approval-foot">
                   <p className="help">{consequence(a)}</p>
                   <div className="actions">
-                    <Link className="btn btn-ghost btn-sm" href={`/chat?c=${a.conversation_id}`}>
-                      Open chat
+                    <Link className="btn btn-ghost btn-sm" href={`/logs?q=${a.conversation_id}`}>
+                      See in Logs
                     </Link>
                     <button className="btn btn-danger" disabled={busy === a.id} onClick={() => decide(a, "denied")}>
                       Deny

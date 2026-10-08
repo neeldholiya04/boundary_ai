@@ -152,7 +152,25 @@ Notes:
   shadow or async. Judged dry runs take at most 10 examples and are rate limited.
 - Each rule's history (the audit log) keeps the full spec, including its keywords: treat it like the
   rules themselves. Matches of keyword and pattern rules are left out of stored excerpts.
-- Rules are created on the admin host only; the public playground can't reach these endpoints.
+- Rules are created by admin accounts only (see "Sign-in and roles").
+
+## Sign-in and roles
+
+`apps/agent/src/boundary_agent/auth.py`. Accounts come from `AUTH_USERS` (`name:password:role`); a
+sign-in (`POST /api/auth/login`) returns a token signed with `AUTH_SECRET` that expires after
+`AUTH_TOKEN_HOURS`. One middleware checks every `/api` request against `required_role(path)`:
+
+| Role | Gets | API |
+|---|---|---|
+| (signed out) | the sign-in page | `/health`, `/api/auth/login` |
+| `user` | a full-screen chat with their own history | `/api/chat`, `/api/conversations…` (only conversations they own; others look missing), `/api/auth/me` |
+| `admin` | the dashboard: guardrails, approvals, logs, tools, playground (no chat) | everything else under `/api`, including the event stream and the playground |
+
+Any path not listed for users needs `admin`, so a new endpoint is private until opened on purpose.
+Users don't get the live event stream (it carries every audit event) or trace links; their chat polls
+while a request waits for approval. The playground is admin-only, so its scans run every policy the
+chat runs, operator rules included; the deployment's own keys (known secrets) are still not checked
+there, so a scan can't confirm a guess. Failed sign-ins are throttled per client.
 
 ## Async checks
 

@@ -23,6 +23,7 @@ ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("approval_requests", "kind", "VARCHAR(24) NOT NULL DEFAULT 'tool_call'"),
     ("approval_requests", "stage", "VARCHAR(24)"),
     ("policies", "mode", "VARCHAR(16) NOT NULL DEFAULT 'enforce'"),
+    ("conversations", "owner", "VARCHAR(80)"),
 ]
 
 

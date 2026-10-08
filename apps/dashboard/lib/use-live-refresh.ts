@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import { API_BASE_URL } from "./api";
+import { getSession } from "./auth";
 
 export function useLiveRefresh(onEvent: () => void) {
   const callbackRef = useRef(onEvent);
@@ -12,7 +13,13 @@ export function useLiveRefresh(onEvent: () => void) {
   }, [onEvent]);
 
   useEffect(() => {
-    const source = new EventSource(`${API_BASE_URL}/api/events/stream`);
+    // The event stream is admin-only (it carries every audit event); EventSource can't send headers,
+    // so the token goes in the query, the one place the API reads it from there.
+    const session = getSession();
+    if (session?.role !== "admin") return;
+    const source = new EventSource(
+      `${API_BASE_URL}/api/events/stream?access_token=${encodeURIComponent(session.token)}`
+    );
     const namedEvents = [
       "chat.user_message",
       "agent.response",

@@ -103,8 +103,9 @@ A **Playground** page in the dashboard, backed by three endpoints:
 
 The deployment ([DEPLOY.md](DEPLOY.md)) closes the items Phase 10 left open:
 
-- **The admin dashboard is not public.** Caddy serves it on its own host, behind basic auth. The
-  public host serves only the Playground page and its two APIs.
+- **Nothing is public without a sign-in.** Both hosts serve the app; the agent checks every API call
+  against the account's role (user: chat; admin: dashboard and playground). See ARCHITECTURE.md,
+  "Sign-in and roles".
 - **`/metrics` is never served through the proxy.** Prometheus scrapes the agent on the internal
   network, and Grafana is reachable only through an SSH tunnel.
 - **Real client IPs:** the agent trusts the forwarded address from Caddy (the only thing that can
