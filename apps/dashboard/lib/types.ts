@@ -49,12 +49,14 @@ export type Policy = {
   name: string;
   rule_type: string;
   enabled: boolean;
+  mode: GuardMode;
   priority: number;
   target_tool: string | null;
   target_server_id: string | null;
   conditions: Record<string, unknown> | null;
   action: Record<string, unknown> | null;
   created_at: string;
+  updated_at: string;
 };
 
 export type Approval = {

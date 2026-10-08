@@ -1,11 +1,11 @@
 "use client";
 
-import { Plus } from "@phosphor-icons/react";
+import { ChatText, Plus, Wrench } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 
 import { ModeSwitch } from "@/components/mode-switch";
 import { RuleEditor, STAGE_LABELS } from "@/components/rule-editor";
-import { ToolPolicies } from "@/components/tool-policies";
+import { ToolRuleEditor, describePolicy } from "@/components/tool-rule-editor";
 import { apiGet, apiSend } from "@/lib/api";
 import {
   GuardMode,
@@ -14,7 +14,8 @@ import {
   GuardStage,
   GuardStat,
   GuardStats,
-  GuardStatus
+  GuardStatus,
+  Policy
 } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 
@@ -74,20 +75,29 @@ export default function GuardrailsPage() {
   const [status, setStatus] = useState<GuardStatus | null>(null);
   const [stats, setStats] = useState<GuardStats | null>(null);
   const [rules, setRules] = useState<GuardRule[] | null>(null);
-  // undefined: editor closed; null: a new rule; a rule: editing it.
-  const [editing, setEditing] = useState<GuardRule | null | undefined>(undefined);
+  const [toolRules, setToolRules] = useState<Policy[] | null>(null);
+  // What the editor shows: nothing, the "what does it check?" chooser, or one of the two editors
+  // (rule null = a new one).
+  const [editor, setEditor] = useState<
+    | { kind: "choose" }
+    | { kind: "text"; rule: GuardRule | null }
+    | { kind: "tool"; rule: Policy | null }
+    | null
+  >(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
 
   async function load() {
-    const [s, st, r] = await Promise.all([
+    const [s, st, r, t] = await Promise.all([
       apiGet<GuardStatus>("/api/guard/status"),
       apiGet<GuardStats>("/api/guard/stats"),
-      apiGet<GuardRule[]>("/api/guard/rules").catch(() => [] as GuardRule[])
+      apiGet<GuardRule[]>("/api/guard/rules").catch(() => [] as GuardRule[]),
+      apiGet<Policy[]>("/api/policies")
     ]);
     setStatus(s);
     setStats(st);
     setRules(r);
+    setToolRules(t);
   }
 
   useEffect(() => {
@@ -123,12 +133,34 @@ export default function GuardrailsPage() {
     });
   }
 
+  function setToolMode(policy: Policy, mode: GuardMode) {
+    return act(policy.id, async () => {
+      await apiSend(`/api/policies/${policy.id}`, { method: "PATCH", body: JSON.stringify({ mode }) });
+      return `${policy.name} is now ${mode}.`;
+    });
+  }
+
+  function deleteToolRule(policy: Policy) {
+    const note = policy.action?.default ? " It's a default rule and won't come back on restart." : "";
+    if (!window.confirm(`Delete the rule "${policy.name}"?${note}`)) return;
+    return act(policy.id, async () => {
+      await apiSend(`/api/policies/${policy.id}`, { method: "DELETE" });
+      return `Deleted ${policy.name}.`;
+    });
+  }
+
   function deleteRule(rule: GuardRule) {
     if (!window.confirm(`Delete the rule "${rule.spec.name}"? Its history stays in the logs.`)) return;
     return act(rule.policy_id, async () => {
       await apiSend(`/api/guard/rules/${rule.id}`, { method: "DELETE" });
       return `Deleted ${rule.spec.name}.`;
     });
+  }
+
+  function saved(message: string) {
+    setEditor(null);
+    setNote({ text: message });
+    load().catch(() => undefined);
   }
 
   const policies = status?.policies ?? [];
@@ -138,6 +170,7 @@ export default function GuardrailsPage() {
   const counts = { enforce: 0, shadow: 0, off: 0 };
   for (const p of policies) counts[p.mode] += 1;
   for (const r of rules ?? []) if (!policyById.has(r.policy_id) && r.spec.mode === "off") counts.off += 1;
+  for (const p of toolRules ?? []) counts[p.mode] += 1;
   const guardOff = status !== null && !status.enabled;
 
   return (
@@ -146,12 +179,12 @@ export default function GuardrailsPage() {
         <div>
           <h1>Guardrails</h1>
           <p>
-            What the agent may read, say and do. Content rules check text at four points; tool policies decide each
+            What the agent may read, say and do. Text rules check what is said at four points; tool rules decide each
             tool call. Shadow logs what a rule would do, enforce acts on it.
           </p>
         </div>
         <div className="actions">
-          <button className="btn btn-primary" onClick={() => setEditing(null)} disabled={guardOff}>
+          <button className="btn btn-primary" onClick={() => setEditor(guardOff ? { kind: "tool", rule: null } : { kind: "choose" })}>
             <Plus size={14} weight="bold" aria-hidden /> New rule
           </button>
         </div>
@@ -160,7 +193,7 @@ export default function GuardrailsPage() {
       {guardOff ? (
         <div className="notice warn">
           The content guard is off. Start the agent with a policy file (<span className="mono">boundary serve --policy</span>)
-          to check text. Tool policies below still apply.
+          to check text. Tool rules still apply.
         </div>
       ) : (
         <dl className="stat-strip" aria-label="Guard summary">
@@ -195,29 +228,38 @@ export default function GuardrailsPage() {
         </p>
       )}
 
-      {!guardOff && (
-        <section className="section" aria-labelledby="rules-title">
-          <div className="section-head">
-            <div>
-              <h2 id="rules-title">Your rules</h2>
-              <p>Written here and applied live. New rules start in shadow so you can watch them first.</p>
-            </div>
+      <section className="section" aria-labelledby="rules-title">
+        <div className="section-head">
+          <div>
+            <h2 id="rules-title">Your rules</h2>
+            <p>
+              Text rules check what is said; tool rules decide tool calls. Both are applied live and can be watched in
+              shadow before they act.
+            </p>
           </div>
-          {rules === null ? (
-            <div className="surface surface-pad">
-              <div className="skeleton" style={{ width: "50%" }} />
-            </div>
-          ) : rules.length === 0 ? (
-            <div className="surface empty">
-              <strong>No rules yet</strong>
-              <p>Block a topic, redact a codename, or describe a policy in plain words and let a model judge it.</p>
-              <button className="btn btn-primary btn-sm" onClick={() => setEditing(null)}>
-                New rule
-              </button>
-            </div>
-          ) : (
-            <div className="rows">
-              {rules.map((rule) => {
+        </div>
+        {rules === null || toolRules === null ? (
+          <div className="surface surface-pad">
+            <div className="skeleton" style={{ width: "50%" }} />
+          </div>
+        ) : rules.length + toolRules.length === 0 ? (
+          <div className="surface empty">
+            <strong>No rules yet</strong>
+            <p>Block a topic, redact a codename, ask before a tool runs, or cap what a conversation can spend.</p>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => setEditor(guardOff ? { kind: "tool", rule: null } : { kind: "choose" })}
+            >
+              New rule
+            </button>
+          </div>
+        ) : (
+          <div className="rows">
+            {rules.length > 0 && [
+              <div className="group-label" key="text-label">
+                Text rules
+              </div>,
+              ...rules.map((rule) => {
                 const running = policyById.get(rule.policy_id);
                 const { spec } = rule;
                 return (
@@ -248,7 +290,7 @@ export default function GuardrailsPage() {
                         busy={busy === rule.policy_id}
                         onChange={(mode) => setRuleMode(rule, mode)}
                       />
-                      <button className="btn btn-sm" onClick={() => setEditing(rule)}>
+                      <button className="btn btn-sm" onClick={() => setEditor({ kind: "text", rule })}>
                         {rule.error ? "Fix" : "Edit"}
                       </button>
                       <button className="btn btn-ghost btn-sm" onClick={() => deleteRule(rule)}>
@@ -257,15 +299,42 @@ export default function GuardrailsPage() {
                     </div>
                   </article>
                 );
-              })}
-            </div>
-          )}
-        </section>
-      )}
-
-      <div id="tool-policies">
-        <ToolPolicies onNote={setNote} />
-      </div>
+              })
+            ]}
+            {toolRules.length > 0 && [
+              <div className="group-label" key="tool-label" id="tool-policies">
+                Tool rules
+              </div>,
+              ...toolRules.map((p) => (
+                <article className="row" key={p.id}>
+                  <div className="row-main">
+                    <div className="row-title">
+                      <span>{p.name}</span>
+                      {Boolean(p.action?.default) && <span className="badge">Default</span>}
+                    </div>
+                    <p className="row-desc">{describePolicy(p)}</p>
+                    {typeof p.action?.reason === "string" && <p className="meta">Shown as: {p.action.reason}</p>}
+                  </div>
+                  <div className="row-side">
+                    <ModeSwitch
+                      value={p.mode}
+                      label={`Mode for ${p.name}`}
+                      busy={busy === p.id}
+                      onChange={(mode) => setToolMode(p, mode)}
+                    />
+                    <button className="btn btn-sm" onClick={() => setEditor({ kind: "tool", rule: p })}>
+                      Edit
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => deleteToolRule(p)}>
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))
+            ]}
+          </div>
+        )}
+      </section>
 
       {!guardOff && (
         <section className="section" aria-labelledby="builtin-title">
@@ -321,17 +390,82 @@ export default function GuardrailsPage() {
         </section>
       )}
 
-      {editing !== undefined && (
-        <RuleEditor
-          rule={editing}
-          onClose={() => setEditing(undefined)}
-          onSaved={(message) => {
-            setEditing(undefined);
-            setNote({ text: message });
-            load().catch(() => undefined);
-          }}
+      {editor?.kind === "choose" && (
+        <NewRuleChooser
+          onClose={() => setEditor(null)}
+          onPick={(kind) => setEditor(kind === "text" ? { kind: "text", rule: null } : { kind: "tool", rule: null })}
         />
       )}
+      {editor?.kind === "text" && (
+        <RuleEditor
+          rule={editor.rule}
+          onClose={() => setEditor(null)}
+          onBack={editor.rule ? undefined : () => setEditor({ kind: "choose" })}
+          onSaved={saved}
+        />
+      )}
+      {editor?.kind === "tool" && (
+        <ToolRuleEditor
+          policy={editor.rule}
+          onClose={() => setEditor(null)}
+          onBack={editor.rule || guardOff ? undefined : () => setEditor({ kind: "choose" })}
+          onSaved={saved}
+        />
+      )}
+    </div>
+  );
+}
+
+/** First step of "New rule": what the rule looks at decides which engine runs it. */
+function NewRuleChooser({ onClose, onPick }: { onClose: () => void; onPick: (kind: "text" | "tool") => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <div
+        className="modal narrow"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chooser-title"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="modal-head">
+          <div>
+            <h2 id="chooser-title">New rule</h2>
+            <p className="help">What should the rule look at?</p>
+          </div>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="modal-body">
+          <div className="pick-list">
+            <button type="button" className="pick" onClick={() => onPick("text")} autoFocus>
+              <ChatText size={20} aria-hidden />
+              <span>
+                <strong>What is said</strong>
+                <span className="help">
+                  Requests, tool results or answers: keywords, patterns, a topic, or a policy in plain words. Can block,
+                  redact or ask a person.
+                </span>
+              </span>
+            </button>
+            <button type="button" className="pick" onClick={() => onPick("tool")}>
+              <Wrench size={20} aria-hidden />
+              <span>
+                <strong>What a tool call does</strong>
+                <span className="help">
+                  A tool and its arguments: ask before it runs, block it, keep paths in a folder, react to flagged runs,
+                  or cap spend.
+                </span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

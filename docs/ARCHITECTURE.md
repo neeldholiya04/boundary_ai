@@ -37,8 +37,9 @@ marked `tainted` with the reason. The policy engine's `guard_signal` rule type r
  "action": {"verdict": "require_approval", "reason": "..."}}
 ```
 
-On startup the agent seeds this rule for `write_file` and `delete_file` if no `guard_signal` rule
-exists (`SEED_GUARD_SIGNAL_POLICIES`). This is how tool-output injection is handled in policy v3:
+On first start the agent creates this rule for `write_file` and `delete_file`
+(`SEED_GUARD_SIGNAL_POLICIES`) and records `policy.defaults_seeded`, so a default an operator deletes
+or edits stays that way across restarts. This is how tool-output injection is handled in policy v3:
 no off-the-shelf detector is good enough to *block* tool output (docs/EVAL.md), but its verdict is
 good enough to make a human approve mutating actions after suspicious content was read. Normal
 precedence still applies: explicit `block_tool` rules beat taint approvals.
@@ -115,9 +116,21 @@ the would-fire rate on that clean traffic, before anything is stored. `GET /api/
 the active rules as a policy-file fragment, so a rule that proved itself can be reviewed into
 `guard.yaml` and measured in CI like the rest.
 
-This also replaces the old split between "tool rules" and "content rules": "every `send_email` needs
-approval" is a tool-args rule with `always` and `escalate`, through the existing approval flow. The
-policy engine's own rules (path allowlists, budgets, the taint → approval link) keep working as before.
+### Text rules and tool rules
+
+The dashboard has one "New rule" flow with two kinds, one per engine:
+
+| | Text rule (guard) | Tool rule (policy engine) |
+|---|---|---|
+| Looks at | what a request, tool result or answer says | a tool call: the tool and its arguments |
+| Can | flag, redact, ask a person, block, taint the run | ask before running, block, keep a path inside folders, react to a tainted run, cap tokens or cost |
+| Stored in | `guard_rules`, compiled into a guard policy | `policies` (`/api/policies`) |
+| Modes | off / shadow / enforce | off / shadow / enforce (shadow verdicts are logged on `policy.decision` as `shadow`) |
+
+Tool rules stay in the policy engine because it owns what the guard doesn't: path normalisation for
+folder rules, conversation budgets, the taint → approval link, and re-checking a call when an approval
+resumes it. The guard's `always` check can still express "every `send_email` needs approval"; existing
+rules of that kind keep working, but new ones are made as tool rules.
 
 Notes:
 - An `llm_judge` rule sends the checked text to the judge model's provider (by default the one the

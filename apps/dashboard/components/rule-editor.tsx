@@ -89,16 +89,6 @@ const PRESETS: { label: string; draft: Partial<Draft> }[] = [
     }
   },
   {
-    label: "Approve a tool",
-    draft: {
-      name: "Approve every email",
-      stages: ["tool_args"],
-      tools: ["send_email"],
-      checkType: "always",
-      action: "escalate"
-    }
-  },
-  {
     label: "Plain-language policy",
     draft: {
       name: "No legal advice",
@@ -190,13 +180,16 @@ function errorText(e: unknown): string {
 export function RuleEditor({
   rule,
   onClose,
-  onSaved
+  onSaved,
+  onBack
 }: {
   rule: GuardRule | null;
   onClose: () => void;
   onSaved: (message: string) => void;
+  onBack?: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(rule ? draftFromRule(rule) : EMPTY);
+  const [startMode, setStartMode] = useState<"shadow" | "enforce">("shadow");
   const [types, setTypes] = useState<CheckTypes | null>(null);
   const [tools, setTools] = useState<string[]>([]);
   const [report, setReport] = useState<RuleDryRun | null>(null);
@@ -254,8 +247,8 @@ export function RuleEditor({
     setBusy("save");
     setError(null);
     try {
-      // New rules start in shadow; an edit keeps the rule's current mode.
-      const spec = specFromDraft(draft, rule?.spec.mode ?? "shadow", rule?.spec);
+      // New rules start in the mode picked (shadow unless asked); an edit keeps the current mode.
+      const spec = specFromDraft(draft, rule?.spec.mode ?? startMode, rule?.spec);
       const saved = await apiSend<GuardRule>(rule ? `/api/guard/rules/${rule.id}` : "/api/guard/rules", {
         method: rule ? "PUT" : "POST",
         body: JSON.stringify(spec)
@@ -263,7 +256,9 @@ export function RuleEditor({
       onSaved(
         rule
           ? `Saved ${saved.policy_id} (v${saved.version})`
-          : `Created ${saved.policy_id} in shadow: it logs what it would do until you enforce it`
+          : startMode === "shadow"
+            ? `Created ${saved.spec.name} in shadow: it logs what it would do until you enforce it`
+            : `Created ${saved.spec.name}. It applies from the next message.`
       );
     } catch (e) {
       setError(errorText(e));
@@ -286,12 +281,21 @@ export function RuleEditor({
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="rule-editor-title">
         <header className="modal-head">
           <div>
-            <h2 id="rule-editor-title">{rule ? `Edit rule` : "New rule"}</h2>
-            {rule && <p className="help mono">{rule.policy_id}</p>}
+            <h2 id="rule-editor-title">{rule ? "Edit text rule" : "New text rule"}</h2>
+            <p className="help">
+              {rule ? <span className="mono">{rule.policy_id}</span> : "Checks what a message, tool result or answer says."}
+            </p>
           </div>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
-            Close
-          </button>
+          <div className="actions">
+            {onBack && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={onBack}>
+                Back
+              </button>
+            )}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
+              Close
+            </button>
+          </div>
         </header>
 
         <form id="rule-form" className="modal-body" onSubmit={save}>
@@ -395,7 +399,10 @@ export function RuleEditor({
                   setReport(null);
                 }}
               >
-                {(types?.checks ?? []).map((c) => (
+                {(types?.checks ?? [])
+                  // "Every call" rules are tool rules now; only an existing one still shows it.
+                  .filter((c) => c.type !== "always" || rule?.spec.check.type === "always")
+                  .map((c) => (
                   <option key={c.type} value={c.type}>
                     {c.label}
                   </option>
@@ -509,7 +516,11 @@ export function RuleEditor({
         </form>
 
         <footer className="modal-foot">
-          <span className="help">{rule ? `Keeps its mode (${rule.spec.mode})` : "New rules start in shadow"}</span>
+          {rule ? (
+            <span className="help">Keeps its mode ({rule.spec.mode})</span>
+          ) : (
+            <StartMode value={startMode} onChange={setStartMode} />
+          )}
           <div className="actions">
             <button type="button" className="btn" onClick={runTest} disabled={busy !== null}>
               {busy === "test" ? "Testing…" : "Test"}
@@ -520,6 +531,37 @@ export function RuleEditor({
           </div>
         </footer>
       </section>
+    </div>
+  );
+}
+
+/** Shadow first (log what it would do) or enforce straight away. Shared by both rule editors. */
+export function StartMode({
+  value,
+  onChange
+}: {
+  value: "shadow" | "enforce";
+  onChange: (mode: "shadow" | "enforce") => void;
+}) {
+  return (
+    <div className="seg" role="radiogroup" aria-label="Start in">
+      {(
+        [
+          ["shadow", "Start in shadow"],
+          ["enforce", "Enforce now"]
+        ] as const
+      ).map(([mode, label]) => (
+        <button
+          key={mode}
+          type="button"
+          role="radio"
+          aria-checked={value === mode}
+          className={`seg-option ${mode}`}
+          onClick={() => onChange(mode)}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

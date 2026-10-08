@@ -22,6 +22,7 @@ ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("runs", "response_schema", "VARCHAR(80)"),
     ("approval_requests", "kind", "VARCHAR(24) NOT NULL DEFAULT 'tool_call'"),
     ("approval_requests", "stage", "VARCHAR(24)"),
+    ("policies", "mode", "VARCHAR(16) NOT NULL DEFAULT 'enforce'"),
 ]
 
 
@@ -33,6 +34,10 @@ def upgrade(conn: Connection) -> list[str]:
         if column not in existing:
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
             applied.append(f"{table}.{column}")
+
+    if "policies.mode" in applied:
+        # Before modes, a disabled policy was simply off.
+        conn.execute(text("UPDATE policies SET mode = 'off' WHERE NOT enabled"))
 
     if conn.dialect.name == "postgresql":
         server_id = next(c for c in inspector.get_columns("approval_requests") if c["name"] == "server_id")

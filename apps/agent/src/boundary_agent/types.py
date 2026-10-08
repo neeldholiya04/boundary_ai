@@ -59,6 +59,8 @@ class PolicyDecision:
     reason: str
     matched_rule_ids: list[str]
     requires_approval: bool = False
+    # What shadow-mode policies would have decided: [{policy_id, verdict, reason}], logged only.
+    shadow: list[dict[str, str]] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.utcnow)
 
 

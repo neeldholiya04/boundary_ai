@@ -124,6 +124,8 @@ class Policy(Base):
     name: Mapped[str] = mapped_column(String(120))
     rule_type: Mapped[str] = mapped_column(String(40))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # off / shadow / enforce, like guard rules. Shadow logs what the policy would decide.
+    mode: Mapped[str] = mapped_column(String(16), default="enforce", server_default="enforce")
     priority: Mapped[int] = mapped_column(Integer, default=100)
     target_tool: Mapped[str | None] = mapped_column(String(120), nullable=True)
     target_server_id: Mapped[str | None] = mapped_column(ForeignKey("mcp_servers.id"), nullable=True)
