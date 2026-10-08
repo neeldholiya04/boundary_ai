@@ -31,10 +31,37 @@ This project adds the layer that sees **content**.
 
 | # | Stage | What crosses it | Who controls it |
 |---|---|---|---|
-| 1 | `user_input` | The user's request | The user (trusted principal, but the public playground makes anyone a user) |
+| 1 | `user_input` | The user's request | A signed-in `user` account: the principal, but not assumed honest (A2) |
 | 2 | `tool_args` | Arguments the model chose | The model, possibly steered by (1) or (3) |
 | 3 | `tool_output` | Web pages, search snippets, issues, files | **Anyone on the internet**: this is the main attack surface |
 | 4 | `final_output` | The answer shown to the user | The model, possibly steered by (1) or (3) |
+
+## Access model
+
+Nobody reaches the agent without signing in. The app is served on one hostname
+(`infra/Caddyfile`); the agent API decides access, not the proxy.
+
+| Role | Gets | Can call |
+|---|---|---|
+| `user` | a full-screen chat with their own conversation history | `/api/auth/me`, `/api/chat`, `/api/conversations/…` (ownership checked per conversation) |
+| `admin` | the dashboard: Guardrails, Approvals, Logs, Tools, Playground; no chat | every `/api` path |
+| anyone | the sign-in page | `/health`, `/api/auth/login` |
+
+- **Default deny.** Every `/api` path not listed for users needs `admin`
+  (`apps/agent/src/boundary_agent/auth.py`), so a new endpoint is private until it is opened on purpose.
+- **Accounts** come from `AUTH_USERS` (`name:password:role`). The local defaults (`admin`/`admin123`,
+  `user`/`user123`) must be replaced in a deployment.
+- **Tokens** are signed with `AUTH_SECRET` (HMAC-SHA256) and expire (12 h by default). Removing an
+  account or changing its role and restarting ends its sessions.
+- **Sign-in attempts** are limited to 10 failures per client per 5 minutes.
+- **The Playground is admin-only.** It used to be public; now it runs every policy the chat runs,
+  dashboard rules included. It still never checks the deployment's own credentials ("known secrets"),
+  so a scan can't confirm a guessed key. Attack mode only uses fake tools.
+- **What users see when the guard acts:** a plain sentence and a run reference. Detector reasons,
+  scores, policy ids and matched keywords stay in Logs, so a block doesn't tell an attacker how close
+  they came. Withheld tool results given to the model don't carry them either.
+- **Metrics:** `/metrics` is not served through the proxy. Grafana and Prometheus are public and
+  read-only on the deployment; they show counts, rates and latencies, never message content.
 
 ## Assets
 
@@ -44,14 +71,16 @@ This project adds the layer that sees **content**.
 - **Personal data** in files, issues and CRM-like exports the agent reads.
 - **The user's trust in the answer:** summaries must reflect sources, not an attacker's claims.
 - **The system prompt and tool list:** low value, but leaking them helps plan other attacks.
-- **Spend:** tokens, and a public demo's budget.
+- **Spend:** tokens, capped per deployment by a daily LLM budget.
+- **The guard's configuration:** dashboard rules, mode switches and tool rules. Changing them is
+  admin-only and audited; a user who could switch a policy to shadow would switch the guard off.
 
 ## Attackers
 
 | Attacker | Controls | Typical goal |
 |---|---|---|
 | **A1: content author** (primary) | A web page, a search-result snippet, an issue or comment, a file that ends up in the workspace | Hijack the agent: write/delete files, exfiltrate data through `web_search`/`fetch_url`/`send_email`, bend the answer |
-| **A2: malicious user** | The chat input (e.g. via the public playground) | Jailbreak, bypass tool policies, extract the system prompt, use the agent off-purpose |
+| **A2: malicious user** | The chat input of a `user` account | Jailbreak, bypass tool policies, extract the system prompt, use the agent off-purpose, reach admin functions |
 | **A3: careless insider** | Their own inputs and documents | Not malicious, but pastes PII or credentials that then get stored, sent to a tool, or echoed |
 
 ## Attacker goals → where we catch them
@@ -79,8 +108,8 @@ and fiction wrappers · persona/role-play jailbreaks · appeals to authority ("t
 ## Out of scope
 
 - Model weights, fine-tuning data poisoning, and the model provider's own safety layer.
-- Hosting, network and supply-chain security, and auth on the admin dashboard (Phase 12 adds
-  basic protection for the demo only).
+- Hosting, network and supply-chain security. Account management beyond the `AUTH_USERS` list
+  (sign-up, password reset, MFA, single sign-on).
 - Non-English content.
 - Multi-modal injection (images, audio). Text extracted from PDFs is in scope.
 - Guaranteeing completeness. We report measured catch rates and false-positive costs; a
@@ -92,4 +121,5 @@ and fiction wrappers · persona/role-play jailbreaks · appeals to authority ("t
   not them.
 - Detectors see text exactly as the model would see it (after HTML-to-text extraction, if the
   tool does one). Tool outputs are checked **before** they are persisted or shown to the model.
-- The user is honest in the single-user deployment. In the public playground, A2 applies.
+- Admin accounts are trusted. User accounts are not: A2 applies to every one of them.
+- Users share one notes workspace and the same tools. Conversations are per user; files are not.

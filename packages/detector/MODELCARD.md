@@ -42,6 +42,12 @@ injection **test** split (golden + extended). Each detector is tuned on the dev 
 
 Test split: 244 injections / 147 clean tool-output records. Thresholds tuned on dev at ~10% FPR.
 
+Measured once, when the model was trained; not part of the committed baselines, and the result file
+(`packages/eval/results/detector.json`) is not committed. The tool-output test split has since grown
+(policy v11: 244 injections / 193 negatives at tool_output), so re-run `evaluate` before
+relying on these numbers. The baselines' thresholds here are matched-budget operating points, not the
+shipped ones (ProtectAI ships at 0.9963 in shadow; Prompt Guard is not used on tool output).
+
 Ours has the **highest catch rate and the lowest false-positive rate** of the three on tool output,
 and is the fastest (smallest model). Its dev-tuned threshold also transferred to test (dev FPR 9.7%
 → test 9.5%), while the baselines' thresholds did not (their test FPR jumped to 20–28%). Full
@@ -49,7 +55,7 @@ context: [docs/EVAL.md](../../docs/EVAL.md).
 
 ## Limitations and honest caveats
 
-- Small model (~70M params) and a small (~1.2k) training set — treat it as a demonstration of the
+- Small model (~70M params: 22M backbone + ~48M embedding) and a small (~1.2k) training set — treat it as a demonstration of the
   *pipeline and the honest comparison*, not a hardened production detector. The scores overlap
   (attacks ~0.65–0.83, clean ~0.62–0.81), so it needs a tuned threshold (~0.71), and the margin is thin.
 - Augmentation teaches "clean document + spliced instruction". Injection styles unlike the training
@@ -57,6 +63,13 @@ context: [docs/EVAL.md](../../docs/EVAL.md).
 - Carrier documents are news articles, not web pages / issues / files; a domain gap from real tool
   output remains. The extended InjecAgent test records mitigate but do not remove it.
 - Trained and evaluated only for tool output; do not use it on user input.
+
+## Status
+
+Not in the production policy set. It runs only from `policies/experiments/our_detector.yaml` (shadow,
+threshold 0.71), which loads the local path `packages/detector/model`. The weights are not committed
+or hosted, so train them first (below or `colab/`). Promotion waits for hosting the model where CI can
+fetch it, with a pinned revision.
 
 ## Reproduce
 

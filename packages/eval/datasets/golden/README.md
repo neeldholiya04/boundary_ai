@@ -84,7 +84,7 @@ for decoys.
 
 ## Status
 
-v0 is complete: 81 records (51 attacks, 30 decoys). The injection, jailbreak and toxicity records
+v0 started with 81 records (51 attacks, 30 decoys); the set now holds 296 (152 attacks, 144 decoys). The injection, jailbreak and toxicity records
 were hand-written by the group from the slots in [TODO.md](TODO.md).
 
 ## Coverage target (v0)

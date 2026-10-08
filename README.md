@@ -1,13 +1,44 @@
 # boundary-ai
 
-A research-assistant agent with guardrails built into its loop, plus the eval harness that proves
-the guardrails work. The agent discovers tools from MCP servers, checks every tool call against a
-deterministic policy engine, asks a human to approve sensitive actions, and runs the guard at four
-points: user input, outgoing tool arguments, tool output, and the final answer. Every guard
-policy's catch rate, false-positive rate, latency and cost are measured in CI.
+**A research and productivity agent with guardrails built into every step of its loop, plus the
+measurements that show the guardrails work.**
 
-New here? Start with [PROJECT.md](PROJECT.md). The spec is [IDEA.md](docs/IDEA.md), the build plan
-[PLAN.md](docs/PLAN.md), and where each part came from is in [CREDITS.md](CREDITS.md).
+The agent chats with a user, plans with an LLM, and calls tools from MCP servers (files, web search,
+documentation). Around it sits a guard that checks four points of every run: the user's request, each
+outgoing tool call, each tool result, and the final answer. On top of the shipped, measured policies,
+admins add their own rules live from a dashboard, watch them in shadow, and enforce them with one click.
+Risky tool calls wait for a person. Secrets are removed before the model ever sees them. Every decision is
+logged, and every detector's catch rate, false-positive rate, latency and cost are measured in CI.
+
+| | |
+|---|---|
+| **For users** | A chat (sign in as a user): ask, research, write files. Blocks are explained in plain words. |
+| **For admins** | A dashboard (sign in as an admin): Guardrails, Approvals, Logs, Tools, Playground. |
+| **For reviewers** | Reproducible evals: golden and extended detector sets, end-to-end attack scenarios, a load test. |
+
+New here? Read this page, then [PROJECT.md](PROJECT.md). The full documentation map is at the
+[end](#documentation).
+
+---
+
+## Contents
+
+- [Results](#results)
+- [How it works](#how-it-works)
+- [The guardrails](#the-guardrails)
+- [Models](#models)
+- [Sign-in and roles](#sign-in-and-roles)
+- [The dashboard](#the-dashboard)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Repository layout](#repository-layout)
+- [Development and testing](#development-and-testing)
+- [Evaluation](#evaluation)
+- [Deployment and operations](#deployment-and-operations)
+- [Documentation](#documentation)
+- [Status and history](#status-and-history)
+
+---
 
 ## Results
 
@@ -38,34 +69,168 @@ load test and every reproduction command: [docs/RESULTS.md](docs/RESULTS.md).
 
 <!-- results:end -->
 
+---
+
+## How it works
+
+```
+                 ┌──────────────────────────── one host (Caddy, HTTPS) ────────────────────────────┐
+ browser ──────► │  dashboard (Next.js)          agent (FastAPI)                                     │
+ user / admin    │   /login                       /api/* ──► sign-in middleware (roles)              │
+                 │   /chat        (user)          ├─ chat ──► AgentRuntime ──► planner LLM (LiteLLM)  │
+                 │   /guardrails…  (admin)        │            │  ▲                                    │
+                 │                                │            ▼  │ guard checks at 4 stages          │
+                 │                                │       boundary_guard (policies/guard.yaml + rules)│
+                 │                                │            │                                      │
+                 │                                │       policy engine (tool rules) ──► MCP tools    │
+                 │                                ├─ approvals, guard, rules, logs, playground       │
+                 │                                └─ Postgres/SQLite · Redis (events, limits)        │
+                 └───────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**One request, end to end**
+
+1. **Sign-in.** The browser signs in and sends a bearer token with every call. A middleware checks the
+   path's role before any route runs: users reach only their own chat, admins everything else.
+2. **User input.** The message is checked. A pasted secret is replaced by a placeholder and the run stops
+   with a plain answer ("I removed the secret… add it yourself"). An attack or off-topic request is
+   refused with a plain message.
+3. **Planning.** The planner LLM (any LiteLLM model) sees only guarded text. Tool results are wrapped in
+   per-request "untrusted" markers (spotlighting).
+4. **Tool arguments.** Each proposed call is checked by the guard (a secret leaving, a key placeholder being
+   written) and then by the **policy engine** (tool rules: block, ask a person, keep paths in a folder,
+   token and cost budgets, react to a flagged run). It runs only if both allow it.
+5. **Tool output.** The result is checked. Content that looks like an injection **taints the run**: from
+   then on, writes and deletes need a person's approval, even if the detector is in shadow.
+6. **Final output.** The answer is checked (secrets, personal data, toxicity, schema) before the user
+   sees it.
+7. **Records.** Every check writes a decision (mode, action, score, latency, redacted excerpt, config
+   hash) and an audit event. The dashboard updates live; traces go to Langfuse; metrics to Prometheus.
+
+```
+user ──► USER_INPUT ──► planner ──► TOOL_ARGS ──► policy engine ──► MCP tool ──► TOOL_OUTPUT ──┐
+                           ▲                                                                   │
+                           └──────────────────────────── (loop) ◄──────────────────────────────┘
+                        planner answer ──► FINAL_OUTPUT ──► user
+```
+
+The design rule that keeps this maintainable: the guard library (`packages/guard`) knows nothing about
+the agent; the agent calls it through one adapter (`apps/agent/src/boundary_agent/guarding.py`). Full
+design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The agent loop in detail:
+[docs/AGENT.md](docs/AGENT.md).
+
+---
+
+## The guardrails
+
+Each **policy** runs one **detector** at one or more **stages**, with an **action** (allow, flag,
+redact, escalate to a person, block) and a **mode** (off, shadow = log what it would do, enforce).
+
+| Stage | What is checked | Shipped policies (see `policies/guard.yaml`) |
+|---|---|---|
+| User input | The user's request | Prompt injection / jailbreak (Prompt Guard 2, confirmed by ProtectAI), jailbreak phrasing (shadow), topic, secrets, personal data |
+| Tool args | What a tool call sends out | Secrets leaving, personal data leaving |
+| Tool output | What a tool returns (web pages, issues, files) | Injection (ProtectAI, shadow, taints the run), injection phrasing (shadow), secrets, personal data |
+| Final output | The answer | Secrets, personal data, toxicity, research-note schema, groundedness (async, shadow) |
+
+**Secrets** have two detection layers and two deterministic stops:
+- *Formats:* 216 provider key formats imported from [gitleaks](https://github.com/gitleaks/gitleaks)
+  (pinned, run on RE2 so matching stays linear). *Context:* a known provider prefix at any length
+  (`sk-ant-`, `sk-proj-`, `github_pat_`, …) and credential-named `.env` lines in any case.
+- A secret in the user's own message stops the run with a fixed answer. A tool call that would write a
+  secret's placeholder as a value is refused. (Both exist because a model will happily write
+  `<OPENAI_KEY_1>` into `.env` and say it saved your key.)
+
+**Your own rules** (Guardrails → New rule):
+- *What is said* (text rules): keywords (optionally close spellings), regex patterns, a topic by example,
+  or a policy in plain words judged by an LLM; at any stage; flag, redact, ask a person or block; with
+  your own message for the user. Each rule has a **Test** against its examples and the eval set's clean
+  records before it is saved.
+- *What a tool call does* (tool rules): ask before running, block, keep paths in a folder, react to a
+  flagged run, cap tokens or cost.
+- Both kinds start in shadow (or enforce immediately if you choose), are versioned and audited.
+
+**What users see** when something is stopped: a plain sentence, shown as a yellow notice, with a run
+reference. Scores, exemplars, policy names and keywords stay in Logs.
+
+Policy history, with the measured effect of every change: [policies/CHANGELOG.md](policies/CHANGELOG.md).
+
+---
+
+## Models
+
+| Purpose | Model | Where it runs | Notes |
+|---|---|---|---|
+| Planner (the agent's LLM) | any [LiteLLM](https://docs.litellm.ai/) model; default `openai/gpt-4.1-mini` | provider API | set with `LLM_MODEL` |
+| Prompt injection / jailbreak in requests | Meta Llama Prompt Guard 2 86M | local | gated on Hugging Face: needs access + `HF_TOKEN` |
+| Second opinion; injection in tool output | ProtectAI `deberta-v3-base-prompt-injection-v2` | local | confirms Prompt Guard; taints runs on tool output |
+| Topic | `sentence-transformers/all-MiniLM-L6-v2` | local | nearest-exemplar, with a similarity floor and a 3-word minimum |
+| Personal data | Microsoft Presidio | local | redacts on read, blocks on the way out |
+| Toxicity | `unitary/toxic-bert` | local | answers only |
+| Groundedness | NLI cross-encoder | local | async, shadow |
+| Our injection detector | DeBERTa-v3-xsmall, fine-tuned | local | beats both off-the-shelf models on tool output (see Results) |
+| Plain-language rules | the planner's model (or `GUARD_JUDGE_MODELS`) | provider API | only for rules you write; fails closed |
+
+Every model is pinned to a revision. Revisions, thresholds, how each was chosen, and per-detector numbers:
+[docs/MODELS.md](docs/MODELS.md). Our detector's model card:
+[packages/detector/MODELCARD.md](packages/detector/MODELCARD.md).
+
+---
+
+## Sign-in and roles
+
+| Account | Default (local only) | Gets |
+|---|---|---|
+| user | `user` / `user123` | A full-screen chat with their own history. Nothing else. |
+| admin | `admin` / `admin123` | The dashboard: Guardrails, Approvals, Logs, Tools, Playground. No chat. |
+
+Roles are enforced by the API on every `/api` path, not just hidden in the UI. Anything not explicitly
+open to users is admin-only. Set real accounts with `AUTH_USERS` (`name:password:role,…`) and a signing
+key with `AUTH_SECRET` in any shared or deployed setup. Endpoints and their roles: [docs/API.md](docs/API.md).
+
+---
+
+## The dashboard
+
+| Page | Who | What it's for |
+|---|---|---|
+| Chat | user | Conversations with history; blocks and approval waits shown as notices |
+| Guardrails | admin | Your rules (text and tool), built-in policies, modes (off / shadow / enforce), per-policy stats |
+| Approvals | admin | Tool calls and content waiting for a person: approve or deny; history |
+| Logs | admin | Every event with a readable summary; filter by kind; search by run or conversation |
+| Tools | admin | MCP servers (add, switch off, refresh) and the tools they offer |
+| Playground | admin | Scan any text through one stage (every policy, your rules included); run the attack demo side by side |
+
+A guided walkthrough for a live demo: [docs/DEMO.md](docs/DEMO.md).
+
+---
+
 ## Quick start
 
-Requires [uv](https://docs.astral.sh/uv/) and, for the dashboard, Node.js 22+. Everything runs
-from the repository root.
+Requires [uv](https://docs.astral.sh/uv/) (Python 3.12 is pinned) and Node.js 22+. Run everything from
+the repository root.
 
 ```bash
 uv sync                                  # Python workspace
-npm --prefix web install                 # dashboard
-uv run boundary dev --demo               # agent API on :8000 + dashboard on :3000, no keys needed
+npm --prefix apps/dashboard install      # dashboard
+uv run boundary dev --demo               # API on :8000 + dashboard on :3000, no keys needed
 ```
 
-`--demo` uses a mock planner, a local SQLite file and no network MCP server, so the whole loop
-(guard, policies, approvals, dashboard) runs offline. For the real thing:
+Open http://localhost:3000 and sign in as `user` / `user123` (chat) or `admin` / `admin123` (dashboard).
+`--demo` uses a mock planner, a local SQLite file and no network MCP server, so the whole loop runs offline.
 
-1. `cp .env.example .env` and pick the model. This one file at the root configures the agent,
-   the dashboard and the deployment. The planner goes through
-   [LiteLLM](https://docs.litellm.ai/), so switching provider is two lines:
+For the real thing:
+
+1. `cp .env.example .env` and choose the planner model:
    - `LLM_MODEL=openai/gpt-4.1-mini` + `OPENAI_API_KEY=...` (default)
    - `LLM_MODEL=anthropic/claude-haiku-4-5-20251001` + `ANTHROPIC_API_KEY=...`
    - `LLM_MODEL=gemini/<model>` + `GEMINI_API_KEY=...`
    - `LLM_MODEL=ollama/<model>` + `LLM_API_BASE=http://localhost:11434`
-2. Start Postgres and Redis: `docker compose --env-file .env -f infra/docker-compose.yml up -d` (or set
-   `DATABASE_URL=sqlite+aiosqlite:///./boundary.db` and leave `REDIS_URL` empty).
-3. `uv run boundary status` to check what will run, then `uv run boundary dev`.
-
-The production policies use a gated model (Llama Prompt Guard 2): request access on its Hugging
-Face page, then `uv run hf auth login` (or set `HF_TOKEN`). The first run downloads ~2 GB of
-pinned models into `~/.cache/huggingface`.
+2. Postgres and Redis: `docker compose --env-file .env -f infra/docker-compose.yml up -d`, or set
+   `DATABASE_URL=sqlite+aiosqlite:///./boundary.db` and leave `REDIS_URL` empty.
+3. The production policies use a gated model (Llama Prompt Guard 2): request access on its Hugging Face
+   page, then `uv run hf auth login` (or set `HF_TOKEN`). The first run downloads ~2 GB of pinned models.
+4. `uv run boundary status` to see what will run, then `uv run boundary dev`.
 
 | Command | What |
 |---|---|
@@ -73,57 +238,133 @@ pinned models into `~/.cache/huggingface`.
 | `uv run boundary web` | the dashboard against a running API |
 | `uv run boundary dev` | both together |
 | `uv run boundary status` | model, database, and the guard policies with their mode and action |
-| `docker compose --env-file .env -f infra/docker-compose.yml --profile observability up -d` | local Prometheus + Grafana with the guard dashboard ([observability](docs/OBSERVABILITY.md)) |
+| `docker compose --env-file .env -f infra/docker-compose.yml --profile observability up -d` | local Prometheus + Grafana |
 
-Guard settings live in `.env`: `GUARD_POLICY_PATH` (default `policies/guard.yaml`; empty runs
-the agent unguarded), `GUARD_TOOL_OUTPUT_ON_BLOCK` (`continue` | `halt`), `GUARD_SPOTLIGHT`,
-`GUARD_TAINT_LABELS`, `SEED_GUARD_SIGNAL_POLICIES`. Schema changes are applied on startup
-(`apps/agent/src/boundary_agent/migrations.py`). A walkthrough of the demo is in [docs/DEMO.md](docs/DEMO.md).
+---
 
-## Layout
+## Configuration
+
+One `.env` at the root configures the agent, the dashboard and the deployment (template:
+[.env.example](.env.example)).
+
+| Setting | Default | What |
+|---|---|---|
+| `LLM_MODEL`, provider key | `openai/gpt-4.1-mini` | the planner |
+| `GUARD_POLICY_PATH` | `policies/guard.yaml` | the guard's policy file; empty runs the agent unguarded |
+| `GUARD_TOOL_OUTPUT_ON_BLOCK` | `continue` | `halt` ends the run when tool output is blocked |
+| `GUARD_SPOTLIGHT` | `true` | wrap tool output in untrusted-data markers in the prompt |
+| `GUARD_TAINT_LABELS` | `injection` | what taints a run when found in tool output |
+| `GUARD_JUDGE_MODEL(S)` | the planner's | models plain-language rules may use |
+| `AUTH_USERS`, `AUTH_SECRET`, `AUTH_TOKEN_HOURS` | local defaults, random key, 12 | sign-in |
+| `DATABASE_URL`, `REDIS_URL` | SQLite, none | storage, shared events and limits |
+| `LLM_DAILY_BUDGET_USD`, `PLAYGROUND_*` | | spend cap and playground limits |
+| `LANGFUSE_*` | off | tracing |
+
+Schema changes are applied on start-up (`apps/agent/src/boundary_agent/migrations.py`).
+
+---
+
+## Repository layout
 
 ```
-apps/          what you run
-  agent/         the agent: FastAPI runtime, planner, policy engine, approvals, guard hooks, `boundary` CLI
-  dashboard/     Next.js UI: chat, policies, approvals, decision log, Guardrails page
-  sandbox-mcp/   sandboxed file MCP server the agent launches over stdio
-packages/      libraries the apps use
-  guard/         boundary_guard: pipeline, policies, detectors (no import of the agent; wraps any LLM app)
-  eval/          boundary_eval: datasets, scenarios, baselines, CI gates, detector + end-to-end harnesses
-  detector/      boundary_detector: our fine-tuned tool-output injection detector + Colab training
-policies/      the guard's versioned policy YAML, rulesets, schemas (CHANGELOG.md)
-infra/         docker compose (local dev; production stack), Caddyfile, Prometheus/Grafana, load test
-docs/          IDEA and PLAN, threat model, eval, results, architecture, agent internals, observability, deploy, CI, demo
+apps/
+  agent/            the agent (FastAPI): src/boundary_agent/
+    main.py           app assembly: sign-in middleware, CORS, routers
+    services.py       runtime objects (settings, guard, agent runtime, policy engine, …)
+    startup.py        lifespan: database, MCP tools, default rules, warm-up, approval sweeper
+    api/              routers: auth, chat, approvals, guard, guard_rules, tool_policies, tools, logs, system
+    agent.py          the agent loop, approvals, content review, secret stops
+    guarding.py       guard adapter, decision sink, user-facing messages
+    policy.py         policy engine (tool rules)
+    rules.py          dashboard rule spec, compilation, dry runs
+    auth.py           accounts, tokens, roles
+    llm.py            planner (LiteLLM), spotlighting
+    playground.py     admin playground (scan, attack demo)
+  dashboard/        Next.js app: app/ (pages), components/, lib/ (API client, auth, helpers)
+  sandbox-mcp/      sandboxed file MCP server the agent launches over stdio
+packages/
+  guard/            boundary_guard: pipeline, config, detectors (usable around any LLM app)
+  eval/             boundary_eval: datasets, scenarios, baselines, gates, detector + end-to-end harnesses
+  detector/         boundary_detector: our fine-tuned injection detector, training, model card
+policies/           guard.yaml, rulesets (incl. the gitleaks import), topics, schemas, CHANGELOG.md
+infra/              Docker Compose (local, production), Caddyfile, deploy script, smoke test, observability
+docs/               design, API, models, eval, results, deploy, operations, demo
 ```
 
-## Development
+---
 
-Python 3.12 is pinned in `.python-version`.
+## Development and testing
 
 ```bash
 uv sync                                       # install workspace + dev tools
-uv run pytest                                 # tests
+uv run pytest                                 # all Python tests (guard, eval, detector, agent, sandbox)
 uv run ruff check . && uv run ruff format .   # lint + format
-uv run boundary-eval validate packages/eval/datasets   # check dataset files
-uv run boundary-eval detectors --suite golden  # run the detector eval
-uv run boundary-eval compare packages/eval/baselines/golden.json packages/eval/results/run.json  # CI gate
-uv run boundary-eval tune packages/eval/results/run.json --max-fpr 0.02   # dev threshold sweep
-uv run boundary-eval build-extended            # rebuild extended set from pinned sources
+npx --prefix apps/dashboard tsc --noEmit -p apps/dashboard   # dashboard typecheck
 ```
 
-## Status
+Conventions: the guard library never imports the agent; API routes live in one router per area and read
+runtime objects from `services`; every policy change bumps the version in `policies/guard.yaml`, gets a
+`CHANGELOG.md` entry and regenerated baselines; secrets in datasets are `{{fake:…}}` placeholders, never
+key-shaped strings.
 
-- [x] Phase 0: repo, workspace, CI
-- [x] Phase 2 (core): pipeline, YAML config, shadow mode, redaction, secrets/jailbreak/schema detectors
-- [x] Phase 1: [threat model](docs/THREAT_MODEL.md), [eval design](docs/EVAL.md), golden set v0 (81 records)
-- [x] Phase 2.5: agent brought into the repo, LiteLLM planner, observe-only guard on tool output
-- [x] Phase 3: eval runner (Wilson CIs, latency bench), baseline, CI gate ([results](docs/EVAL.md#golden-v0-baseline))
-- [x] Phase 4: ML detectors (Prompt Guard 2, ProtectAI, Presidio, toxic-bert, MiniLM topic, NLI), extended set (2,406 records), threshold tuning ([results](docs/EVAL.md))
-- [x] Phase 5: guard enforced in the agent at all four stages, run taint, content review, spotlighting ([architecture](docs/ARCHITECTURE.md))
-- [x] Phase 6: end-to-end scenario harness (fixture MCP, ASR/utility metrics, LLM cassette); with filters + taint, attack success 40% → 20% at 67% benign success (5 attack / 3 benign test scenarios; [results](docs/EVAL.md#end-to-end-results))
-- [x] Phase 7: CI gates (detector + e2e), sticky PR comment, nightly cassette refresh ([CI docs](docs/CI.md))
-- [x] Phase 8: our fine-tuned detector beats both off-the-shelf baselines on tool-output injection (82.8% catch / 9.5% FPR) ([detector](packages/detector/README.md))
-- [x] Phase 9: runtime mode overrides (persisted + audited), shadow-vs-enforce stats, Guardrails dashboard page
-- [x] Phase 10: Langfuse tracing (one trace per run, redacted only), Prometheus metrics + Grafana dashboard, public Playground (scan + attack mode) with rate limits and a daily LLM budget ([observability](docs/OBSERVABILITY.md))
-- [x] Phase 11: load test (guard off / blocking / as shipped, with a per-policy latency breakdown), `enforce` e2e config, generated [RESULTS.md](docs/RESULTS.md) + README results, demo script ([DEMO.md](docs/DEMO.md))
-- [ ] Phase 12: deployment to AWS (one t4g.large, Caddy HTTPS, public playground + password-protected admin): repo side done and rehearsed locally, step-by-step guide in [DEPLOY.md](docs/DEPLOY.md); going live next
+---
+
+## Evaluation
+
+| Suite | What | Command |
+|---|---|---|
+| Golden | hand-written records per stage and category, dev/test split, incl. a blind held-out topic set | `uv run boundary-eval detectors --suite golden` |
+| Extended | public datasets (deepset, jailbreak-classification, InjecAgent, civil_comments, HaluEval) + synthetic PII and secrets | `uv run boundary-eval detectors --suite extended` |
+| End-to-end | attack and benign scenarios through the real agent, 7 defence configs, replayed from a recorded cassette | `uv run boundary-eval e2e` |
+| Load | latency and throughput with the guard off / blocking / as shipped | `uv run boundary-eval loadtest` |
+| Gate | compare a run to the committed baseline (CI) | `uv run boundary-eval compare <baseline> <run>` |
+| Write-up | regenerate RESULTS.md and the block above | `uv run boundary-eval results` |
+
+Methodology, datasets, gates and operating points: [docs/EVAL.md](docs/EVAL.md). Current numbers:
+[docs/RESULTS.md](docs/RESULTS.md). CI: [docs/CI.md](docs/CI.md).
+
+---
+
+## Deployment and operations
+
+One host (AWS t4g.large in the guide), Docker Compose, Caddy with automatic HTTPS, one hostname. Sign-in is
+enforced by the agent. Every merge to `main` can deploy itself and is checked by a smoke test.
+
+- Step by step, including CI/CD and upgrades: [docs/DEPLOY.md](docs/DEPLOY.md)
+- Tracing, metrics, Grafana, the playground's limits: [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)
+
+---
+
+## Documentation
+
+| Document | Read it for |
+|---|---|
+| [PROJECT.md](PROJECT.md) | The newcomer's overview: what the project is and how the pieces relate |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | High-level design: components, request flow, verdicts, taint, secrets, rules, roles |
+| [docs/AGENT.md](docs/AGENT.md) | The agent loop, approvals, content review, the planner |
+| [docs/API.md](docs/API.md) | Every HTTP endpoint, who may call it, request and response |
+| [docs/MODELS.md](docs/MODELS.md) | Every detector and model: configuration, revision, measured numbers |
+| [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | Attackers, assets, what each stage defends against |
+| [docs/EVAL.md](docs/EVAL.md) | How everything is measured: datasets, metrics, gates, tuning |
+| [docs/RESULTS.md](docs/RESULTS.md) | The current numbers (generated) |
+| [policies/CHANGELOG.md](policies/CHANGELOG.md) | Every policy version, why it changed, what it moved |
+| [docs/DEMO.md](docs/DEMO.md) | A step-by-step live demo |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Deploying, CI/CD, operating, upgrading |
+| [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Tracing, metrics, dashboards, playground limits |
+| [docs/CI.md](docs/CI.md) | The CI workflows and gates |
+| [docs/IDEA.md](docs/IDEA.md) · [docs/PLAN.md](docs/PLAN.md) | The original spec and build plan (historical) |
+| [CREDITS.md](CREDITS.md) | Where each part came from; third-party models, datasets and rules |
+| Package READMEs | [guard](packages/guard/README.md) · [eval](packages/eval/README.md) · [detector](packages/detector/README.md) ([model card](packages/detector/MODELCARD.md)) · [agent](apps/agent/README.md) · [dashboard](apps/dashboard/README.md) · [sandbox MCP](apps/sandbox-mcp/README.md) |
+
+---
+
+## Status and history
+
+- [x] Phases 0–3: repo and CI, guard core (pipeline, YAML config, shadow mode, redaction), threat model, eval design and runner, baselines and gates
+- [x] Phase 4: ML detectors (Prompt Guard 2, ProtectAI, Presidio, toxic-bert, MiniLM topic, NLI), extended set, threshold tuning
+- [x] Phase 5: guard enforced in the agent at all four stages, run taint, content review, spotlighting
+- [x] Phases 6–7: end-to-end scenario harness with a recorded cassette; CI gates for detectors and end-to-end
+- [x] Phase 8: our fine-tuned detector (82.8% catch / 9.5% FPR on tool-output injection)
+- [x] Phases 9–11: runtime modes and shadow-vs-enforce stats, tracing and metrics, playground, load test, generated results
+- [x] Phase 12: deployment (one host, Caddy HTTPS, CI/CD with a smoke test)
+- [x] After launch: dashboard rules (text and tool), secrets hardening (gitleaks formats, context rules, secret stops), false-positive fixes from real use (topic, Prompt Guard), plain block messages, sign-in with user and admin roles, admin-only playground, a rebuilt dashboard, and the API split into routers. Policy history: [CHANGELOG](policies/CHANGELOG.md).
