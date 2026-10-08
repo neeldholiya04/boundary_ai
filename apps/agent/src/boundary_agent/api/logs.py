@@ -20,7 +20,9 @@ router = APIRouter(prefix="/api")
 @router.get("/logs")
 async def list_logs(session: AsyncSession = Depends(get_session), limit: int = 100) -> list[dict]:
     events = (
-        await session.scalars(select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(limit))
+        await session.scalars(
+            select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(min(limit, 5000))
+        )
     ).all()
     return [
         {

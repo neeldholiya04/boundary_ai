@@ -112,7 +112,7 @@ _MIN_KNOWN_SECRET_CHARS = 12
 _MIN_KNOWN_SECRET_ENTROPY = 3.5
 # Env vars meant to be public (bundled into frontends), whatever their name says.
 _PUBLIC_ENV_PREFIXES = ("NEXT_PUBLIC_", "PUBLIC_", "VITE_", "REACT_APP_")
-# Callers that must never learn whether a guess equals a deployment secret (the public playground):
+# Callers that must never learn whether a guess equals a deployment secret (the playground):
 # known-secret matching is skipped for checks they make.
 UNTRUSTED_SOURCES = frozenset({"playground"})
 

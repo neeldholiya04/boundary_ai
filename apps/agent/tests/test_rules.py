@@ -263,6 +263,15 @@ async def test_file_policies_are_not_rules(api):
     assert live.mode_of("file_words").value == "shadow"
 
 
+async def test_guard_status_keeps_the_keys_the_dashboard_reads(api):
+    # The dashboard (lib/types.ts GuardStatus) reads these keys; a refactor once renamed rule_errors.
+    client, _, _ = api
+    status = (await client.get("/api/guard/status")).json()
+    expected = {"enabled", "version", "config_hash", "modes", "policies", "rule_errors", "dropped_async"}
+    assert expected <= status.keys()
+    assert {"id", "origin", "stages", "detector", "action", "mode"} <= status["policies"][0].keys()
+
+
 async def test_rule_dry_run_endpoint(api):
     client, _, _ = api
     report = (

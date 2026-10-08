@@ -70,11 +70,15 @@ class AgentRuntime:
                 .limit(1)
             )
         if pending_approval is not None:
+            # The run's user-facing line, not the approval's reason (which is for the reviewer and can
+            # name guard policies and scores).
+            paused = await session.get(Run, pending_approval.run_id)
+            waiting_for = (paused.paused_reason if paused else None) or "a person's approval"
             return ChatResponse(
                 conversation_id=conversation.id,
                 run_id=pending_approval.run_id,
                 status="waiting_approval",
-                assistant_message=f"Conversation is waiting for approval: {pending_approval.reason}",
+                assistant_message=f"This conversation is still waiting: {waiting_for}",
                 approval_request_id=pending_approval.id,
             )
 
@@ -248,7 +252,12 @@ class AgentRuntime:
             run.status = "denied"
             run.latest_response = "Tool call denied by human approval."
             session.add(
-                Message(conversation_id=conversation.id, role="assistant", content=run.latest_response)
+                Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=run.latest_response,
+                    metadata_json={"notice": "blocked"},
+                )
             )
             await session.commit()
             return ChatResponse(
@@ -670,7 +679,12 @@ class AgentRuntime:
             run.status = "failed"
             run.latest_response = f"Tool execution failed: {exc}"
             session.add(
-                Message(conversation_id=conversation.id, role="assistant", content=run.latest_response)
+                Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=run.latest_response,
+                    metadata_json={"notice": "stopped"},
+                )
             )
             await self.audit_logger.record(
                 session,
@@ -1048,7 +1062,14 @@ class AgentRuntime:
         approval.decided_at = datetime.utcnow()
         run.status = "denied"
         run.latest_response = "Approval expired before anyone reviewed it."
-        session.add(Message(conversation_id=conversation.id, role="assistant", content=run.latest_response))
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=run.latest_response,
+                metadata_json={"notice": "stopped"},
+            )
+        )
         await self.audit_logger.record(
             session,
             "approval.expired",

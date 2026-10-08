@@ -46,7 +46,7 @@ async def guard_status() -> dict:
             }
             for p in services.guard.config.policies
         ],
-        "guard_rules.rule_errors": guard_rules.rule_errors,
+        "rule_errors": guard_rules.rule_errors,
         "dropped_async": services.guard.dropped_async,
         "pending_async": services.guard.pending_async,
         "tracing": services.telemetry.enabled,

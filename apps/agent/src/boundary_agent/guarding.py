@@ -572,5 +572,8 @@ __all__ = [
     "mode_counts",
     "redacted_tool_result",
     "redaction_notice",
+    "secret_placeholder_message",
+    "secret_withheld_message",
+    "user_block_message",
     "withheld_result",
 ]

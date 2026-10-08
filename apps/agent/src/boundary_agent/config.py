@@ -82,8 +82,9 @@ class Settings(BaseSettings):
     langfuse_host: str = "https://cloud.langfuse.com"
     # Hard cap on real LLM spend per UTC day across the app (0 = no cap). Cassette replays don't count.
     llm_daily_budget_usd: float = 0.0
-    # Public playground (scan + attack mode). Abuse controls: input size, per-client rate limits,
-    # the daily budget above, fixture-only tools. Live runs = pasted pages through the real model.
+    # Playground (scan + attack mode; admin only since sign-in). Abuse controls: input size, per-client
+    # rate limits, the daily budget above, fixture-only tools. Live runs = pasted pages through the real
+    # model.
     playground_enabled: bool = True
     playground_live_runs: bool = True
     playground_max_input_chars: int = 8000

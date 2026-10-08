@@ -1,4 +1,4 @@
-"""Attack mode for the public playground: run one poisoned scenario through the real agent twice,
+"""Attack mode for the admin playground: run one poisoned scenario through the real agent twice,
 with no defence and with the production stance (filters + taint), and return both side by side.
 
 It reuses the end-to-end harness: the fixture tool server (fake, read-only web/GitHub content and
