@@ -22,6 +22,8 @@ function rootPublicEnv() {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   distDir: "build-output",
+  // The floating dev badge sits on top of the sidebar.
+  devIndicators: false,
   env: rootPublicEnv()
 };
 
