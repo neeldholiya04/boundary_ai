@@ -566,7 +566,8 @@ class AgentRuntime:
             # The approval keeps the full reason for whoever decides; the user gets a plain line. A tool
             # policy's reason is written by the operator for users; the guard's names scores.
             assistant_message = (
-                f"{tool_call.tool_name} needs a person's approval before it runs: {decision.reason}"
+                f"{tool_call.tool_name} needs a person's approval before it runs: "
+                f"{decision.user_reason or decision.reason}"
                 if decision.verdict == "require_approval"
                 else f"{tool_call.tool_name} needs a person's approval before it runs."
             )

@@ -4,6 +4,13 @@ Every change to `guard.yaml`, a ruleset, or a schema bumps `version` in `guard.y
 and gets an entry here. Eval results are stamped with the config hash, so each entry
 should say which numbers it is expected to move.
 
+## v11
+- `topic` deny exemplars v4: homework is no longer a deny category. Whether a question is someone's
+  homework can't be told from the text, and answering questions is the assistant's job: "prove that
+  1+2 is not equal to 3" was blocked as math homework. The six homework records in the golden set are
+  relabelled benign (a product decision, noted on each record). Held-out test: off-topic caught 79%,
+  normal messages flagged 3.2%; dev: 94% / 0%.
+
 ## v10
 - Found from real use: in the chats run on this install, `topic` blocked 6 of 44 distinct user messages
   and Prompt Guard 1, all wrongly ("hi bro how is … doing", "but bro why you blocked", "write a note on

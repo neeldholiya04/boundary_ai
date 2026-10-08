@@ -258,3 +258,24 @@ async def test_defaults_seeded_before_the_marker_are_labelled(api):
         await session.commit()
         [p] = (await session.scalars(select(Policy))).all()
         assert p.action_json == {"verdict": "require_approval", "default": True}
+
+
+def test_flagged_run_detail_goes_to_the_approval_not_the_user():
+    # The taint detail names a guard policy; the user line keeps only the rule's own reason.
+    tainted = intent()
+    tainted.run_tainted = True
+    tainted.taint_reason = "fetch_url output flagged by tool_output_injection_protectai (shadow)"
+    rule = Policy(
+        id="t",
+        name="Tainted run: approve writes",
+        rule_type="guard_signal",
+        enabled=True,
+        mode="enforce",
+        priority=190,
+        target_tool="write_file",
+        conditions_json={"run_tainted": True},
+        action_json={"verdict": "require_approval", "reason": "Tainted run: writes need approval."},
+    )
+    decision = PolicyEngine().evaluate(tainted, [rule])
+    assert "tool_output_injection_protectai" in decision.reason
+    assert decision.user_reason == "Tainted run: writes need approval."
